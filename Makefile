@@ -48,11 +48,15 @@ DEST=0
 # -----------------------------------------
 # 
 
-PROGELF=o-optimize/netboot
+
+PROGELF=o-optimize/netboot$(EXTENS)
 # must still terminate in ".bin"
-IMGEXT=flashimg.bin
+EXTENS=.elf
+IMGEXT=.flashimg.bin
 TMPNAM=tmp
 MAKEFILE=Makefile
+
+SCRIPTS=smonscript.st reflash.st
 
 include $(RTEMS_MAKEFILE_PATH)/Makefile.inc
 include $(RTEMS_CUSTOM)
@@ -69,11 +73,13 @@ LINKBINS= $(TMPIMG).gz
 LINKOBJS=gunzip.o
 LINKSCRIPT=gunzip.lds
 
+FINALTGT = $(PROGELF:%$(EXTENS)=%$(IMGEXT))
+
 #
 # "--just-symbols" files must be loaded _before_ the binary images
 LINKARGS=--defsym DEST=$(DEST) --defsym FLASHSTART=$(FLASHSTART) -T$(LINKSCRIPT) $(LINKOBJS) --just-symbols=$(PROGELF) -b binary  $(LINKBINS) 
 
-all:	$(PROGELF).$(IMGEXT)
+all:	$(FINALTGT)
 
 $(TMPIMG):	$(PROGELF)
 	$(OBJCOPY) -Obinary $^ $@
@@ -88,12 +94,18 @@ $(TMPIMG).gz: $(TMPIMG)
 gunzip.o: gunzip.c $(MAKEFILE)
 	$(CC) -c $(CFLAGS) -DDEST=$(DEST) -o $@ $<
 
-$(PROGELF).$(IMGEXT):	$(LINKOBJS) $(LINKBINS) $(LINKSCRIPT) $(MAKEFILE)
+$(FINALTGT):	$(LINKOBJS) $(LINKBINS) $(LINKSCRIPT) $(MAKEFILE)
 	$(RM) $@
 	$(LD) -o $@ $(LINKARGS) -Map map --oformat=binary
-#	$(LD) -o $(@:%.bin=%.elf) $(LINKARGS)
+#	$(LD) -o $(@:%.bin=%$(EXTENS)) $(LINKARGS)
 	$(RM) $(LINKBINS)
+
+install: $(PROGELF) $(FINALTGT) $(SCRIPTS)
+	$(INSTALL_CHANGE) $^ $(INSTALLDIR)/$(RTEMS_BSP)/img
 
 clean:
 	$(RM) $(TMPIMG) $(LINKBINS) $(LINKOBJS)
 	$(MAKE) -f Makefile.rtems clean
+
+balla:
+	echo $(FINALTGT)

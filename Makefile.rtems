@@ -25,7 +25,7 @@ S_O_FILES=$(S_FILES:%.S=${ARCH}/%.o)
 SRCS=$(C_FILES) $(CC_FILES) $(H_FILES) $(S_FILES)
 OBJS=$(C_O_FILES) $(CC_O_FILES) $(S_O_FILES)
 
-PGMS=${ARCH}/netboot
+PGMS=${ARCH}/netboot.elf
 
 # List of RTEMS managers to be included in the application goes here.
 # Use:
@@ -71,7 +71,7 @@ CLOBBER_ADDITIONS +=
 
 all:	${ARCH} $(SRCS) $(PGMS)
 
-${ARCH}/netboot: ${OBJS} ${LINK_FILES}
+${PGMS}: ${OBJS} ${LINK_FILES}
 	$(make-exe)
 
 ballah:

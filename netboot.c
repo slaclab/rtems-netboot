@@ -417,7 +417,7 @@ static ParmRec parmList[]={
 	{ "BP_PARM=",  &bootparms,
 			"Command line parameters:\n"
 			" >",
-			getCmdline,		FLAG_NOUSE,
+			getCmdline,		0,
 	},
 	{ "BP_SRVR=",  &srvname,
 			"Server IP:    >",
@@ -1165,6 +1165,7 @@ rtems_task Init(
 
 #define SADR rtems_bsdnet_bootp_server_address
 #define BOFN rtems_bsdnet_bootp_boot_file_name
+#define BCMD rtems_bsdnet_bootp_cmdline
 
 	tftp_prefix=strdup(TFTP_PREFIX);
 
@@ -1292,6 +1293,9 @@ rtems_task Init(
 			free(filename);
 			filename=strdup(BOFN);
 		}
+		free(bootparms);
+		bootparms = BCMD && *BCMD ? strdup(BCMD) : 0;
+
 		srvname = strdup("xxx.xxx.xxx.xxx.");
 		if (!inet_ntop(AF_INET,&SADR,srvname,strlen(srvname))) {
 			free(srvname);
@@ -1395,16 +1399,45 @@ rtems_task Init(
 		{
 			int 	len;
 			Parm	end;
+			char	*quoted=0;
+			char	*unquoted=bootparms;
+			char	*src,*dst;
 
-			/* The command line parameters come first */
+			free(cmdline);
+			cmdline=0;
+
 			len = bootparms ? strlen(bootparms) : 0;
 
-			cmdline = realloc(cmdline, len ? len+1 : 0); /* terminating ' \0' */
-			if (len) {
-				strcpy(cmdline, bootparms);
+			/* we quote the apostrophs */
+
+			if (bootparms) {
+				/* count ' occurrence */
+				for (src = bootparms + len - 1;
+					 src >= bootparms;
+					 src--) {
+					if ('\'' == *src)
+							len++;
+				}
+
+				quoted = malloc(len + 2 + 1); /* opening/ending quote + \0 */
+				src = bootparms;
+				dst=quoted;
+				*dst++ = '\'';
+				do {
+					if ( '\'' == *src )
+						*dst++ = *src;
+				} while ( (*dst++ = *src++) );
+				*dst-- = 0;
+				*dst   = '\'';
+				bootparms = quoted;
+			} else if (manual>0) {
+				/* they manually force 'no commandline' */
+				bootparms = quoted = strdup("''");
 			}
 
 			p=parmList;
+
+			len = 0;
 
 			/* then we append a bunch of environment variables */
 			if ( !rtems_bsdnet_config.bootp )
@@ -1440,6 +1473,13 @@ rtems_task Init(
 		fprintf(stderr,"'%s'\n",cmdline ? cmdline : "<EMPTY>");
 #endif
 		doLoad(fd,errfd);
+		/* if we ever return from a load attempt, we restore
+		 * the unquoted parameter line
+		 */
+		if (quoted) {
+			bootparms = unquoted;
+			free(quoted);
+		}
 		}
 	}
   rtems_task_delete(RTEMS_SELF);
