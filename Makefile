@@ -3,7 +3,7 @@ FLASHSTART=0xfff80000
 DEST=0x100
 
 # DEBUGGING VALUES (make clean; make when changing these)
-#FLASHSTART=0x400000
+#FLASHSTART=0x200000
 #DEST=0x10000
 
 # Use a destination address > 0, e.g. 0x10000
@@ -48,8 +48,11 @@ DEST=0x100
 # -----------------------------------------
 # 
 
+APPS=netboot coredump
 
-PROGELF=o-optimize/netboot$(EXTENS)
+mkelf=$(1:%=o-optimize/%$(EXTENS))
+
+PROGELF=$(foreach i,$(APPS),$(call mkelf,$i))
 # must still terminate in ".bin"
 EXTENS=.elf
 IMGEXT=.flashimg.bin
@@ -77,11 +80,11 @@ FINALTGT = $(PROGELF:%$(EXTENS)=%$(IMGEXT))
 
 #
 # "--just-symbols" files must be loaded _before_ the binary images
-LINKARGS=--defsym DEST=$(DEST) --defsym FLASHSTART=$(FLASHSTART) -T$(LINKSCRIPT) $(LINKOBJS) --just-symbols=$(PROGELF) -b binary  $(LINKBINS) 
+LINKARGS=--defsym DEST=$(DEST) --defsym FLASHSTART=$(FLASHSTART) -T$(LINKSCRIPT) $(LINKOBJS) --just-symbols=$(call mkelf,netboot) -b binary  $(LINKBINS) 
 
 all:	$(FINALTGT)
 
-$(TMPIMG):	$(PROGELF)
+$(TMPIMG):	$(call mkelf,netboot)
 	$(OBJCOPY) -Obinary $^ $@
 
 $(PROGELF)::
@@ -94,11 +97,15 @@ $(TMPIMG).gz: $(TMPIMG)
 gunzip.o: gunzip.c $(MAKEFILE)
 	$(CC) -c $(CFLAGS) -DDEST=$(DEST) -o $@ $<
 
-$(FINALTGT):	$(LINKOBJS) $(LINKBINS) $(LINKSCRIPT) $(MAKEFILE)
+$(filter %netboot$(IMGEXT),$(FINALTGT)): $(LINKOBJS) $(LINKBINS) $(LINKSCRIPT) $(MAKEFILE)
 	$(RM) $@
 	$(LD) -o $@ $(LINKARGS) -Map map --oformat=binary
 #	$(LD) -o $(@:%.bin=%$(EXTENS)) $(LINKARGS)
 	$(RM) $(LINKBINS)
+
+$(filter %coredump$(IMGEXT),$(FINALTGT)):%$(IMGEXT):%$(EXTENS)
+	$(RM) $@
+	$(OBJCOPY) -Obinary $^ $@
 
 ifndef RTEMS_SITE_INSTALLDIR
 RTEMS_SITE_INSTALLDIR = $(PROJECT_RELEASE)

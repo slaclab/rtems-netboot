@@ -69,9 +69,6 @@
 #define SPC_STOP		CTRL_G
 #define SPC_RESTORE		CTRL_R
 #define SPC_UP			CTRL_K
-#ifdef __INSIDE_NETBOOT__
-#define SPC_REBOOT		CTRL_X
-#endif
 #define SPC_ESC			CTRL_C
 #define SPC_CLEAR_UNDO	CTRL_O
 
@@ -147,6 +144,7 @@ static int getNum(GET_PROC_ARG_PROTO);
 #define FILENAME_IDX 0
 #define CMD_LINE_IDX 1
 #define SERVERIP_IDX 2
+#define MYIPADDR_IDX 4
 #define BOOTP_EN_IDX 15
 #define DELYSECS_IDX 16
 #define CPU_TAU_IDX  17
@@ -162,7 +160,11 @@ static ParmRec parmList[NUM_PARMS+1]={
 #else
 			strbuf + 0,
 #endif
-			"Boot file name (may be '~user/path' to specify rsh user):\n"
+#ifndef COREDUMP_APP
+			"Boot file (e.g., '/TFTP/1.2.3.4/path', '~rshuser/path' or 'nfshost:/dir:path'):\n"
+#else
+			"Core file name on TFTP server (e.g. '/TFTP/11.2.3.4/feil'):\n"
+#endif
 			" >",
 			getString,		FLAG_MAND | FLAG_BOOTP | FLAG_BOOTP_MAN,
 	},

@@ -6,33 +6,40 @@
 #
 
 # C source names, if any, go here -- minus the .c
-C_PIECES=netboot ctrlx term nvram
+C_PIECES_netboot=netboot ctrlx term nvram
+C_PIECES_coredump=coredump ctrlx term nvram memusage
+
+C_PIECES=$(C_PIECES_$(PGM))
+C_O_FILES=${C_PIECES:%=${ARCH}/%.o}
 C_FILES=$(C_PIECES:%=%.c)
-C_O_FILES=$(C_PIECES:%=${ARCH}/%.o)
 
 # link from the subdir
 # C++ source names, if any, go here -- minus the .cc
-CC_PIECES=
+
+CC_PIECES=$(CC_PIECES_$(PGM))
 CC_FILES=$(CC_PIECES:%=%.cc)
 CC_O_FILES=$(CC_PIECES:%=${ARCH}/%.o)
 
 H_FILES=
 
 # Assembly source names, if any, go here -- minus the .S
-S_PIECES=
+S_PIECES_coredump=boot
+
+S_PIECES=$(S_PIECES_$(PGM))
 S_FILES=$(S_PIECES:%=%.S)
 S_O_FILES=$(S_FILES:%.S=${ARCH}/%.o)
 
 SRCS=$(C_FILES) $(CC_FILES) $(H_FILES) $(S_FILES)
 OBJS=$(C_O_FILES) $(CC_O_FILES) $(S_O_FILES)
 
-PGMS=${ARCH}/netboot.elf
+
+APPS=netboot coredump
 
 # List of RTEMS managers to be included in the application goes here.
 # Use:
 #     MANAGERS=all
 # to include all RTEMS managers in the application.
-MANAGERS=io event semaphore timer
+MANAGERS=io event semaphore timer msg
 
 include $(RTEMS_MAKEFILE_PATH)/Makefile.inc
 
@@ -42,11 +49,12 @@ include $(RTEMS_ROOT)/make/leaf.cfg
 #
 # (OPTIONAL) Add local stuff here using +=
 #
+DEFINES_coredump += -DCOREDUMP_APP
 
-DEFINES +=
+DEFINES += -DWINS_LINE_DISC ${DEFINES_${PGM}}
 # -DUSE_SHELL
-CPPFLAGS += -I$(exec_prefix)/include -I.
-CFLAGS += $(DEBUG) -DWINS_LINE_DISC -DBARE_BOOTP_LOADER
+CPPFLAGS += -I. -I$(exec_prefix)/include
+CFLAGS += $(DEBUG)
 
 #
 # CFLAGS_DEBUG_V are used when the `make debug' target is built.
@@ -57,9 +65,13 @@ CFLAGS += $(DEBUG) -DWINS_LINE_DISC -DBARE_BOOTP_LOADER
 
 LD_PATHS  += $(exec_prefix)/lib
 #LD_LIBS   += -lcexp -lelf -lreadline -ltermcap -lregexp
-LD_LIBS   += -ltecla_r
+LD_LIBS   += -ltecla_r -lrtemsNfs
 #LD_LIBS   += -lreadline -ltermcap
 #LDFLAGS   += -L/usr/local/rtems/powerpc-rtems/lib -Wl,-Map,map
+#LDFLAGS += -Wl,--section-start,.image_start=0x300000 -Wl,--section-start,.data=0x500000
+#LDFLAGS += -Wl,--section-start,.text=0x3000 -Wl,--section-start,.data=0x100000
+LDFLAGS_coredump = -qnolinkcmds -Wl,-Tcoredump.lds -Wl,-Map,$(ARCH)/linkmap
+LDFLAGS += -Wl,-Map,$(ARCH)/${PGM}.linkmap ${LDFLAGS_${PGM}} -Wl,-u,inet_pton -Wl,-z,muldefs
 
 #
 # Add your list of files to delete here.  The config files
@@ -71,14 +83,43 @@ LD_LIBS   += -ltecla_r
 CLEAN_ADDITIONS += term.c
 CLOBBER_ADDITIONS +=
 
-all:	${ARCH} $(SRCS) $(PGMS)
+all:	${ARCH} $(SRCS) $(APPS)
 
-${PGMS}: ${OBJS} ${LINK_FILES}
+.PHONY: $(APPS)
+
+
+define m-debug
+	echo MAKING $(PGM)
+	echo OBJS $(OBJS)
+	echo PREQS $^
+endef
+
+
+$(APPS):%:$(ARCH)/%.elf
+
+
+# each APP needs to set PGM because target dependent variable settings
+# **not** expanded in the prerequisites :-( :-(
+# AND the target specific variable definition is necessary to override
+# the value used by the commands :-(. Ugly
+netboot:PGM=netboot
+PGM:=netboot
+$(ARCH)/$(PGM).elf: $(OBJS) $(LINKFILES)
 	$(make-exe)
 
+coredump:PGM=coredump
+PGM:=coredump
+$(ARCH)/$(PGM).elf: $(OBJS) $(LINKFILES)
+	$(make-exe)
+
+
 $(ARCH)/netboot.o: nvram.c
+$(ARCH)/coredump.o: nvram.c
 
 term.c: termsize/term.c
+	ln -s $^ $@
+
+coredump.c: netboot.c
 	ln -s $^ $@
 
 # Install the program(s), appending _g or _p as appropriate.

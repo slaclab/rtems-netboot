@@ -9,6 +9,14 @@
 #define TFTP_PREFIX		"/TFTP/BOOTP_HOST/"		/* filename to prepend when accessing the image via TFTPfs (only if "/TFTP/" not already present) */
 #define CMDPARM_PREFIX	"BOOTFILE="				/* if defined, 'BOOTFILE=<image filename>' will be added to the kernel commandline */
 
+#ifndef COREDUMP_APP
+#define APPNAME "netboot"
+#define TFTP_OPEN_FLAGS (O_RDONLY)
+#else
+#define APPNAME "coredump"
+#define TFTP_OPEN_FLAGS (O_WRONLY)
+#endif
+
 #define DEBUG
 
 #include <string.h>
@@ -22,6 +30,8 @@
 #include <rtems.h>
 #include <rtems/error.h>
 #include <rtems/rtems_bsdnet.h>
+#include <rtems/tftp.h>
+#include <librtemsNfs.h>
 
 
 #include <sys/socket.h>
@@ -33,7 +43,15 @@
 
 #include <bsp.h>
 
+#ifndef COREDUMP_APP
+static int isNfsPath( char **server, char *path, int *perrfd);
+static int isRshPath( char **server, char *path, int *perrfd);
+#endif
+
+static int isTftpPath(char **server, char *path, int *perrfd);
+
 #ifndef BARE_BOOTP_LOADER
+
 #include <ctrlx.h>
 /* define after including <bsp.h> */
 
@@ -100,13 +118,14 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 
 #define CONFIGURE_USE_IMFS_AS_BASE_FILESYSTEM
 
-#define CONFIGURE_MAXIMUM_SEMAPHORES    4
-#define CONFIGURE_MAXIMUM_TASKS         4
+#define CONFIGURE_MAXIMUM_SEMAPHORES    6
+#define CONFIGURE_MAXIMUM_TASKS         6
 #define CONFIGURE_MAXIMUM_DEVICES       4
 #define CONFIGURE_MAXIMUM_REGIONS       4
-#define CONFIGURE_MAXIMUM_MESSAGE_QUEUES		2
+#define CONFIGURE_MAXIMUM_MESSAGE_QUEUES	0
+#define CONFIGURE_MAXIMUM_DRIVERS		4
 
-#define CONFIGURE_LIBIO_MAXIMUM_FILE_DESCRIPTORS 20
+#define CONFIGURE_LIBIO_MAXIMUM_FILE_DESCRIPTORS 10
 
 #define CONFIGURE_MICROSECONDS_PER_TICK 10000
 
@@ -205,7 +224,7 @@ struct rtems_bsdnet_config rtems_bsdnet_config = {
       /*
       unsigned long        mbuf_cluster_bytecount; * 128 kbytes *
        */
-	4096*100,
+	0,
       /*
       char                *hostname;               * BOOTP      *
        */
@@ -240,6 +259,7 @@ static char *tftp_prefix=0;
 #include "nvram.c"
 #endif
 
+#ifndef COREDUMP_APP
 /* NOTE: rtems_bsdnet_ifconfig(,SIOCSIFFLAGS,) does only set, but not
  *       clear bits in the flags !!
  */
@@ -459,12 +479,219 @@ cleanup:
 	return 0;
 }
 
+static int isRshPath(char **srvname, char *path, int *perrfd)
+{
+int	fd = -1;
+char *username, *fn;
+char *chpt = *srvname;
+
+	fn = path = strdup(path);
+
+	*perrfd = -1;
+
+	/* they gave us user name */
+	username=++fn;
+	if ((fn=strchr(fn,'/'))) {
+		*(fn++)=0;
+	}
+
+	fprintf(stderr,"Loading as '%s' using RSH\n",username);
+
+	if (!fn || !*fn) {
+		fprintf(stderr,"No file; trying 'rtems.bin'\n");
+		fn="rtems.bin";
+	}
+
+	/* cat filename to command */
+	path=realloc(path,strlen(RSH_CMD)+strlen(fn)+1);
+	sprintf(path,"%s%s",RSH_CMD,fn);
+
+	fd=rcmd(&chpt,RSH_PORT,username,username,path,perrfd);
+
+	free(path);
+
+	if (fd<0) {
+		fprintf(stderr,"rcmd (%s): got no remote stdout descriptor\n",
+						strerror(errno));
+		if ( *perrfd >= 0 )
+			close( *perrfd );
+		*perrfd = -1;
+	} else if ( *perrfd<0 ) {
+		fprintf(stderr,"rcmd (%s): got no remote stderr descriptor\n",
+						strerror(errno));
+		if ( fd>=0 )
+			close( fd );
+		fd = -1;
+	}
+	return fd;
+}
+
+static int nfsInited = 0;
+
+static int isNfsPath(char **srvname, char *path, int *perrfd)
+{
+static char *lastmount = 0;
+int        fd = -1;
+
+char *col1 = 0,*col2 = 0,*slas = 0;
+
+	*perrfd = -1;
+
+	if ( 	!(col1=strchr(path,':'))
+		 || !(col2=strchr(col1+1,':'))
+		 || !(slas=strchr(path,'/'))
+         || slas!=col1+1 ) {
+		if (col1)
+			fprintf(stderr,"NFS pathspec is [host]:<path_to_mount>:<file_rel_to_mntpt>\n");
+		return -2;
+	}
+
+	if ( lastmount ) {
+		unmount(lastmount);
+		free(lastmount);
+		lastmount = 0;
+	} else if ( !nfsInited ) {
+		if ( rpcUdpInit() ) {
+			fprintf(stderr,"RPC-IO initialization failed - try RSH or TFTP\n");
+			return -1;
+		}
+		nfsInit(0,0);
+		nfsInited = 1;
+	}
+
+	*col1 = 0;
+	*col2 = 0;
+
+	if (   col1 == path
+		|| 0==strcmp(path, "BOOTP_HOST") ) {
+		if ( !*srvname ) {
+			fprintf(stderr,"No server name :-(\n");
+			goto cleanup;
+		}
+	} else {
+		/* Changed server name */
+		free(*srvname);
+		*srvname = strdup(path);
+	}
+	lastmount = malloc(strlen(*srvname)+2);
+	sprintf(lastmount,"/%s",*srvname);
+	if ( nfsMount(*srvname, col1+1, lastmount) ) {
+		unlink(lastmount);
+		free(lastmount);
+		lastmount = 0;
+	} else {
+		char *tmppath = malloc(strlen(lastmount) + strlen(col2+1) + 3);
+		sprintf(tmppath,"%s/%s",lastmount,col2+1);
+		fd = open(tmppath,O_RDONLY);
+		free(tmppath);
+	}
+
+cleanup:
+	*col1 = *col2 = ':';
+	return fd;
+}
+#else
+void __attribute__((section(".bootstrap")))
+bootstrap_everything()
+{
+extern unsigned _edata[];
+extern unsigned _etext[];
+extern unsigned __DATA_START__[];
+extern void		__boot_from_fdiag();
+register unsigned *from;
+register unsigned *to;
+
+	to = (unsigned*)0x3000 - 1; from = (unsigned *)0x0 - 1 ;
+	do {
+		*++to = *++from;
+/*      asm volatile("dcbf 0,%0"::"r"(to)); */
+	} while (to != (unsigned*)0x6000 - 1);
+
+	/* save the exception handler area to 0x3000.0x6000 */
+	to=__DATA_START__-1; from=_etext-1;
+	do {
+		*++to = *++from;
+/*      asm volatile("dcbf 0,%0"::"r"(to)); */
+	} while ( to != _edata - 1 );
+	
+	asm volatile(
+		"mtlr %0		\n"
+		" li %%r3, %1	\n"
+		" mr %%r4, %%r3	\n"
+		" mr %%r5, %%r3	\n"
+		" mr %%r6, %%r3	\n"
+		" mr %%r7, %%r3	\n"
+		"sync           \n"
+		" blr			\n"
+		::"r"(__boot_from_fdiag),"i"(0):"r3","r4","r5","r6","r7");
+}
+
+#include <libcpu/pte121.h>
+
+/* Provide pagetable setup routine. It serves two purposes:
+ *
+ *  1) Clamp memory used for the data area.
+ *  2) Disable pagetables. The default mapping assumes
+ *     data is above text which for this application doesn't
+ *     apply!
+ *     Don't bother using a different setup, just let the BSP
+ *     fall back on the BAT setting...
+ */
+Triv121PgTbl
+BSP_pgtbl_setup(unsigned int *pmemsize)
+{
+	*pmemsize = 0x80000;
+	return 0;
+}
+#endif /* COREDUMP_APP */
+
+static int tftpInited=0;
+
+static int isTftpPath(char **srvname, char *opath, int *perrfd)
+{
+int        fd = -1;
+char       *path;
+
+
+	*perrfd = -1;
+
+ 	if (!tftpInited && rtems_bsdnet_initialize_tftp_filesystem()) {
+		fprintf(stderr,"TFTP FS initialization failed - try NFS or RSH\n");
+		return -1;
+	} else
+		tftpInited=1;
+
+	path = strdup(opath);
+
+	fprintf(stderr,"Using TFTP for transfer\n");
+	if (strncmp(path,"/TFTP/",6)) {
+		path=realloc(path,strlen(tftp_prefix)+strlen(path)+1);
+		sprintf(path,"%s%s",tftp_prefix,opath);
+	} else {
+		char *tmp;
+		/* may be necessary to rebuild the server name */
+		if ((tmp=strchr(path+6,'/'))) {
+			*tmp=0;
+			free(*srvname);
+			*srvname=strdup(path+6);
+			*tmp='/';
+		}
+	}
+	if ((fd=open(path,TFTP_OPEN_FLAGS,0))<0) {
+			fprintf(stderr,"unable to open %s\n",path);
+	}
+	free(path);
+	return fd;
+}
+
+
 #ifndef BARE_BOOTP_LOADER
 static void
 help(void)
 {
 	printf("\n");
 	printf("Press 's' for showing the current NVRAM configuration\n");
+#ifndef COREDUMP_APP
 	printf("Press 'c' for changing your NVRAM configuration\n");
 	printf("Press 'b' for manually entering filename/cmdline parameters only\n");
 	printf("Press '@' for continuing the netboot (BOOTP flag from NVRAM)\n");
@@ -472,24 +699,230 @@ help(void)
 	printf("Press 'p' for continuing the netboot; enforce using BOOTP\n"
            "          but use file and cmdline from NVRAM\n");
 	printf("Press 'm' for continuing the netboot; enforce using NVRAM config\n");
+	printf("Press 'R' to reboot now "
 #ifdef SPC_REBOOT
-	printf("Press 'R' to reboot now (you can always hit <Ctrl>-%c to reboot)\n",SPC2CHR(SPC_REBOOT));
+	       "(you can always hit <Ctrl>-%c to reboot)",SPC2CHR(SPC_REBOOT)
+#endif
+		  );
+	fputc('\n',stdout);
+#else
+	printf("Press 'c' for changing your current configuration (NVRAM will not be changed)\n");
+	printf("Press '@' for continuing to boot "APPNAME" (BOOTP flag from NVRAM)\n");
+	printf("Press 'd' for continuing to boot "APPNAME"; enforce using BOOTP for network config\n");
+	printf("Press 'm' for continuing the netboot; enforce using NVRAM config\n");
 #endif
 	printf("Press any other key for this message\n");
 }
+
+#ifdef COREDUMP_APP
+
+static int
+doWrite(int fd, unsigned start, unsigned end)
+{
+int written;
+	while ( start < end ) {
+		written = write(fd, (void*)start, end-start);
+		if ( written < 0 ) {
+			perror("Unable to write; try a different server/file");
+			break;
+		}
+		start += written;
+	}
+	return end-start;
+}
+
+static void
+doIt(int manual, int enforceBootp, NetConfigCtxt ctx)
+{
+int fd = -1, dummy;
+char *sstr = strdup("0x0");
+char *estr = strdup("0x0");
+unsigned long start,end;
+char buf[4];
+
+	while (1) {
+		free(filename);
+		filename = 0;
+
+		if (fd > -1) {
+			close(fd);
+			fd = -1;
+		}
+
+		do {
+			callGet(ctx, FILENAME_IDX, 1 /* loop until valid answer */);
+		} while ( (fd=isTftpPath(&srvname, filename, &dummy)) < 0 );
+		do {
+			while ( getNum(ctx, "Enter Start Address> ", &sstr, 1) )
+				;
+			/* error checking has already been done */
+			start = strtoul(sstr,0,0);
+			while ( getNum(ctx, "Enter End Address (== Start dumps entire memory)> ", &estr, 1) )
+				;
+			end = strtoul(estr,0,0);
+		} while ( end < start
+			     && fprintf(stderr,"\nEnding address must not be less than start\n") );
+
+		if ( end == start ) {
+#if 0
+			unsigned char reg = *SYN_VGM_REG_INFO_MEMORY;
+			start = 0;
+			end   = SYN_VGM_REG_INFO_MEMORY_BANKS(reg)        /* number of banks */
+					* SYN_VGM_REG_INFO_MEMORY_BANK_SIZE(reg); /* bank size */
+#else
+			/* we're not using page tables -- hence BSP_memSize is accurate */
+			start = 0;
+			end   = BSP_mem_size;
+#endif
+		}
+
+		/* handle special case; write doesn't like a NULL buffer address */
+		if ( 0 == start ) {
+			unsigned tmpe = end > 4 ? 4 : end;
+			for ( ; start<tmpe; start++ )
+				buf[start] = *(char*)start;
+			if (doWrite(fd,(unsigned)buf,(unsigned)(buf+tmpe)))
+				continue;
+			start += tmpe;
+		}
+
+		if (0==doWrite(fd, start, end))
+			printf("Memory dump successfully written\n");
+		memUsageDump(1);
+	}
+}
+
+#else
+static void
+doIt(int manual, int enforceBootp, NetConfigCtxt ctx)
+{
+int  fd,errfd;
+Parm p;
+int  i;
+	for (;1;manual=1) {
+		if (manual>0  || !filename) {
+			if (!manual)
+				fprintf(stderr,"Didn't get a filename from BOOTP server\n");
+			callGet(ctx, FILENAME_IDX, 1 /* loop until valid answer */);
+		}
+
+		if ( filename && '~'==*filename ) {
+			if (manual>0 || !srvname) {
+				if (!srvname)
+					fprintf(stderr,"Unable to convert server address to name\n");
+				callGet(ctx, SERVERIP_IDX, 1/*loop until valid*/);
+			}
+			fd = isRshPath(&srvname, filename, &errfd);
+		} else if ( (fd = isNfsPath(&srvname, filename, &errfd)) < -1 ) {
+			fd = isTftpPath(&srvname, filename, &errfd);
+		}
+
+		if ( fd < 0 )
+			continue;
+
+		if (manual>0) {
+			callGet(ctx, CMD_LINE_IDX, 0);
+		} /* else cmdline==0 [init] */
+
+		/* assemble command line */
+		{
+			int 	len;
+			char	*quoted=0;
+			char	*unquoted=bootparms;
+			char	*src,*dst;
+
+			free(cmdline);
+			cmdline=0;
+
+			len = bootparms ? strlen(bootparms) : 0;
+
+			/* we quote the apostrophs */
+
+			if (bootparms) {
+				/* count ' occurrence */
+				for (src = bootparms + len - 1;
+					 src >= bootparms;
+					 src--) {
+					if ('\'' == *src)
+							len++;
+				}
+
+				quoted = malloc(len + 2 + 1); /* opening/ending quote + \0 */
+				src = bootparms;
+				dst=quoted;
+				*dst++ = '\'';
+				do {
+					if ( '\'' == *src )
+						*dst++ = *src;
+				} while ( (*dst++ = *src++) );
+				*dst-- = 0;
+				*dst   = '\'';
+				bootparms = quoted;
+			} else if (manual>0) {
+				/* they manually force 'no commandline' */
+				bootparms = quoted = strdup("''");
+			}
+
+
+			/* then we append a bunch of environment variables */
+			for (i=len=0, p=ctx->parmList; p->name; p++, i++) {
+				char *v;
+				int		incr;
+
+				v = *ctx->parmList[i].pval;
+
+				/* unused or empty parameter */
+				if ( p->flags&FLAG_NOUSE			||
+					 !v								||
+					 ( rtems_bsdnet_config.bootp && 
+						(p->flags & FLAG_BOOTP)  &&						/* should obtain this by bootp               */
+						! ((p->flags & FLAG_BOOTP_MAN) && (manual ||	/* AND it's not overridden manually          */
+                                                      (2==enforceBootp) /*     nor by the enforceBootp value '2'     */
+                                                          )             /*     which says we should use NVRAM values */
+                          )
+					 )
+					)
+					continue;
+
+				if (len) {
+					cmdline[len++]=' '; /* use space of the '\0' */
+				}
+
+				incr    = strlen(p->name) + strlen(v);
+				cmdline = realloc(cmdline, len + incr + 1); /* terminating '\0' */
+				sprintf(cmdline + len,"%s%s", p->name, v);
+				len+=incr;
+			}
+		fprintf(stderr,"Hello, this is the RTEMS remote loader; trying to load '%s'\n",
+						filename);
+
+#if defined(DEBUG)
+		fprintf(stderr,"Appending Commandline:\n");
+		fprintf(stderr,"'%s'\n",cmdline ? cmdline : "<EMPTY>");
+#endif
+		doLoad(fd,errfd);
+		/* if we ever return from a load attempt, we restore
+		 * the unquoted parameter line
+		 */
+		close(fd);
+		fd = -1;
+		if (quoted) {
+			bootparms = unquoted;
+			free(quoted);
+		}
+		}
+	}
+}
+#endif
 
 rtems_task Init(
   rtems_task_argument ignored
 )
 {
 
-  int tftpInited=0;
   int manual;
   int enforceBootp;
 
-  char *cmd=0, *fn;
-  char *username, *tmp=0;
-  int  useTftp,fd,errfd;
   extern struct in_addr rtems_bsdnet_bootp_server_address;
   extern char           *rtems_bsdnet_bootp_boot_file_name;
   Parm	p;
@@ -504,7 +937,9 @@ rtems_task Init(
    * so they can be used by a full-blown system outside of 'netboot')
    */
 
+#ifdef SPC_REBOOT
  	installConsoleCtrlXHack(SPC_REBOOT);
+#endif
 
 #ifndef USE_READLINE
 	ansiTiocGwinszInstall(7);
@@ -518,7 +953,11 @@ rtems_task Init(
 
 	tftp_prefix=strdup(TFTP_PREFIX);
 
+#ifndef COREDUMP_APP
 	fprintf(stderr,"\n\nRTEMS bootloader by Till Straumann <strauman@slac.stanford.edu>\n");
+#else
+	fprintf(stderr,"\n\nRTEMS coredump helper by Till Straumann <strauman@slac.stanford.edu>\n");
+#endif
 	fprintf(stderr,"$Id$\n");
 	fprintf(stderr,"CVS tag $Name$\n");
 
@@ -527,6 +966,7 @@ rtems_task Init(
 		writeNVRAM(&ctx);
 	}
 
+#ifndef COREDUMP_APP
 	if ( !CPU_TAU_offset )
 		tauOffsetHelp();
 
@@ -534,6 +974,9 @@ rtems_task Init(
 	 * a valid string...
 	 */
 	secs=strtoul(auto_delay_secs,0,0);
+#else
+	secs = 1;
+#endif
 
 	/* give them a chance to abort the netboot */
 	do {
@@ -558,7 +1001,7 @@ rtems_task Init(
 					secs=-1;	/* forever */
 					help();		/* display options */
 				} else {
-					fprintf(stderr,"\n\nType any character to abort netboot:xx");
+					fprintf(stderr,"\n\nType any character to abort "APPNAME":xx");
 				}
 				while (secs) {
 					if (secs>0)
@@ -584,19 +1027,33 @@ rtems_task Init(
 							switch (ch) {
 								case 's':	manual=showConfig(&ctx, 1);
 									break;
-								case 'c':	if (config(&ctx) >=0)
+								case 'c':	if (config(&ctx) >=0) {
+#ifndef COREDUMP_APP
 												writeNVRAM(&ctx);
+#else
+												do {} while (0);
+#endif
+											}
 											manual = -1;
 									break;
+#ifndef COREDUMP_APP
 								case 'b':	manual=1;					break;
-								case '@':	manual=0;					break;
 								case 'p':	manual=0; enforceBootp=2;	break;
+								case 'R':
+#endif
+#ifdef SPC_REBOOT
+								case CTRL_X:
+#endif
+#if defined(SPC_REBOOT) || !defined(COREDUMP_APP)
+											rtemsReboot();
+											/* never get here */
+										break;
+#endif
+
+								case '@':	manual=0;					break;
 								case 'd':	manual=0; enforceBootp=1;	break;
 								case 'm':	manual=0; enforceBootp=-1;	break;
 
-								case CTRL_X:
-								case 'R':	rtemsReboot(); /* never get here */
-										break;
 								default: 	manual=-1;
 										break;
 							}
@@ -610,7 +1067,13 @@ rtems_task Init(
 			}
 		}
 		secs = -1;
-	} while ( haveAllMandatory( &ctx, ch ) >=0 );
+	} while ( haveAllMandatory( &ctx, ch ) >=
+#ifndef COREDUMP_APP
+			FILENAME_IDX
+#else
+			MYIPADDR_IDX
+#endif
+			);
 
 	{
 		extern int yellowfin_debug;
@@ -668,181 +1131,9 @@ rtems_task Init(
 			srvname=0;
 		}
 	}
-	
-	for (;1;manual=1) {
-		if (manual>0  || !filename) {
-			if (!manual)
-				fprintf(stderr,"Didn't get a filename from BOOTP server\n");
-			callGet(&ctx, FILENAME_IDX, 1 /* loop until valid answer */);
-		}
-		fn=filename;
 
-		useTftp = fn && '~'!=*fn;
+	doIt(manual, enforceBootp, &ctx);
 
-		if (!useTftp) {
-
- 			/* they gave us user name */
-			username=++fn;
-			if ((fn=strchr(fn,'/'))) {
-				*(fn++)=0;
-			}
-
-			fprintf(stderr,"Loading as '%s' using RSH\n",username);
-
-			if (!fn || !*fn) {
-				fprintf(stderr,"No file; trying 'rtems'\n");
-				fn="rtems";
-			}
-
-			if (manual>0 || !srvname) {
-
-				if (!srvname)
-					fprintf(stderr,"Unable to convert server address to name\n");
-
-				callGet(&ctx, SERVERIP_IDX, 1/*loop until valid*/);
-			}
-
-			/* cat filename to command */
-			cmd=realloc(cmd,strlen(RSH_CMD)+strlen(fn)+1);
-			sprintf(cmd,"%s%s",RSH_CMD,fn);
-
-			{ char *chpt=srvname;
-			fd=rcmd(&chpt,RSH_PORT,username,username,cmd,&errfd);
-			}
-			free(cmd); cmd=0;
-			if (fd<0) {
-				fprintf(stderr,"rcmd (%s): got no remote stdout descriptor\n",
-								strerror(errno));
-				continue;
-			}
-			if (errfd<0) {
-				fprintf(stderr,"rcmd (%s): got no remote stderr descriptor\n",
-								strerror(errno));
-				continue;
-			}
-			/* reassemble the filename */
-			free(cmd);
-			cmd=filename;
-			filename=malloc(1+strlen(username)+1+strlen(fn)+1);
-			sprintf(filename,"~%s/%s",username,fn);
-			fn=filename;
-		} else {
-#ifndef USE_CEXP
-  			if (!tftpInited && rtems_bsdnet_initialize_tftp_filesystem())
-				BSP_panic("TFTP FS initialization failed");
-			else
-				tftpInited=1;
-#endif
-			fprintf(stderr,"No user specified; using TFTP for download\n");
-			fn=filename;
-			if (strncmp(filename,"/TFTP/",6)) {
-				fn=cmd=realloc(cmd,strlen(tftp_prefix)+strlen(filename)+1);
-				sprintf(cmd,"%s%s",tftp_prefix,filename);
-			} else {
-				/* may be necessary to rebuild the server name */
-				if ((tmp=strchr(filename+6,'/'))) {
-					*tmp=0;
-					free(srvname);
-					srvname=strdup(filename+6);
-					*tmp='/';
-				}
-			}
-			if ((fd=open(fn,O_RDONLY,0))<0) {
-					fprintf(stderr,"unable to open %s\n",fn);
-					continue;
-			}
-			errfd=-1;
-		}
-		if (manual>0) {
-			callGet(&ctx, CMD_LINE_IDX, 0);
-		} /* else cmdline==0 [init] */
-
-		/* assemble command line */
-		{
-			int 	len;
-			char	*quoted=0;
-			char	*unquoted=bootparms;
-			char	*src,*dst;
-
-			free(cmdline);
-			cmdline=0;
-
-			len = bootparms ? strlen(bootparms) : 0;
-
-			/* we quote the apostrophs */
-
-			if (bootparms) {
-				/* count ' occurrence */
-				for (src = bootparms + len - 1;
-					 src >= bootparms;
-					 src--) {
-					if ('\'' == *src)
-							len++;
-				}
-
-				quoted = malloc(len + 2 + 1); /* opening/ending quote + \0 */
-				src = bootparms;
-				dst=quoted;
-				*dst++ = '\'';
-				do {
-					if ( '\'' == *src )
-						*dst++ = *src;
-				} while ( (*dst++ = *src++) );
-				*dst-- = 0;
-				*dst   = '\'';
-				bootparms = quoted;
-			} else if (manual>0) {
-				/* they manually force 'no commandline' */
-				bootparms = quoted = strdup("''");
-			}
-
-
-			/* then we append a bunch of environment variables */
-			for (i=len=0, p=ctx.parmList; p->name; p++, i++) {
-				char *v;
-				int		incr;
-
-				v = *ctx.parmList[i].pval;
-
-				/* unused or empty parameter */
-				if ( p->flags&FLAG_NOUSE			||
-					 !v								||
-					 ( rtems_bsdnet_config.bootp && 
-						(p->flags & FLAG_BOOTP)  &&						/* should obtain this by bootp               */
-						! ((p->flags & FLAG_BOOTP_MAN) && (manual ||	/* AND it's not overridden manually          */
-                                                      (2==enforceBootp) /*     nor by the enforceBootp value '2'     */
-                                                          )             /*     which says we should use NVRAM values */
-                          )
-					 )
-					)
-					continue;
-
-				if (len) {
-					cmdline[len++]=' '; /* use space of the '\0' */
-				}
-
-				incr    = strlen(p->name) + strlen(v);
-				cmdline = realloc(cmdline, len + incr + 1); /* terminating '\0' */
-				sprintf(cmdline + len,"%s%s", p->name, v);
-				len+=incr;
-			}
-		fprintf(stderr,"Hello, this is the RTEMS remote loader; trying to load '%s'\n",
-						filename);
-
-#if defined(DEBUG)
-		fprintf(stderr,"Appending Commandline:\n");
-		fprintf(stderr,"'%s'\n",cmdline ? cmdline : "<EMPTY>");
-#endif
-		doLoad(fd,errfd);
-		/* if we ever return from a load attempt, we restore
-		 * the unquoted parameter line
-		 */
-		if (quoted) {
-			bootparms = unquoted;
-			free(quoted);
-		}
-		}
-	}
   rtems_task_delete(RTEMS_SELF);
 
   exit( 0 );
@@ -858,6 +1149,7 @@ int fd;
   	rtems_bsdnet_initialize_network(); 
  	if ( !rtems_bsdnet_initialize_tftp_filesystem() )
 		BSP_panic("TFTP FS initialization failed\n");
+	/* TODO: prepend 'TFTP prefix'; check for NFS */
 	if ( (fd = open(rtems_bsdnet_bootp_boot_file_name,O_RDONLY)) < 0 )
 		BSP_panic("Unable to open boot file\n");
 	doLoad(fd,-1);

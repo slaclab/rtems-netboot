@@ -62,7 +62,11 @@ extern unsigned long __zl_data_start;
 #define TEST_IN_RAM
 #endif
 
-#ifdef TEST_IN_RAM
+#ifndef TEST_IN_RAM
+#undef USE_SMON_PRINT
+#endif
+
+#ifdef USE_SMON_PRINT
 static void zlprint(char *s);
 static void zlstop(unsigned v1, unsigned v2, unsigned v3);
 #else
@@ -75,12 +79,12 @@ static void *free_mem;
 static void gunzip();
 
 /* gcc -O4 doesn't preserve start() at the beginning */
-/*
 __asm__ ("  .globl _start; _start: b start");
-*/
 
+/*
 void
 start(char *r3, char *r4, char *r5, char *r6) __attribute__ ((section(".text.start")));
+*/
 
 void
 start(char *r3, char *r4, char *r5, char *r6)
@@ -214,7 +218,7 @@ memcpy(char *dest, char *src, int n)
 	return dest;
 }
 
-#ifdef TEST_IN_RAM
+#ifdef USE_SMON_PRINT
 static void
 zlputc(int ch)
 {
