@@ -4,7 +4,6 @@
  *  $Id$
  */
 
-#define RSH_CMD			"cat "					/* Command for loading the image using RSH */
 #define TFTP_PREPREFIX	"/TFTP/"
 #define TFTP_PREFIX		"/TFTP/BOOTP_HOST/"		/* filename to prepend when accessing the image via TFTPfs (only if "/TFTP/" not already present) */
 #define CMDPARM_PREFIX	"BOOTFILE="				/* if defined, 'BOOTFILE=<image filename>' will be added to the kernel commandline */
@@ -44,11 +43,13 @@
 #include <bsp.h>
 
 #ifndef COREDUMP_APP
-static int isNfsPath( char **server, char *path, int *perrfd);
-static int isRshPath( char **server, char *path, int *perrfd);
+static int nfsInited     = 0;
 #endif
 
-static int isTftpPath(char **server, char *path, int *perrfd);
+static int tftpInited    = 0;
+static char *tftp_prefix = 0;
+
+#include "pathcheck.c"
 
 #ifndef BARE_BOOTP_LOADER
 
@@ -118,14 +119,31 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 
 #define CONFIGURE_USE_IMFS_AS_BASE_FILESYSTEM
 
+#ifndef COREDUMP_APP
+
+/* NETBOOT configuration */
+#define CONFIGURE_MAXIMUM_SEMAPHORES   	20 
+#define CONFIGURE_MAXIMUM_TASKS         6
+#define CONFIGURE_MAXIMUM_DEVICES       4
+#define CONFIGURE_MAXIMUM_REGIONS       4
+#define CONFIGURE_MAXIMUM_MESSAGE_QUEUES	4
+#define CONFIGURE_MAXIMUM_DRIVERS		4
+#define CONFIGURE_LIBIO_MAXIMUM_FILE_DESCRIPTORS 20
+
+#else
+
+/* COREDUMP configuration */
 #define CONFIGURE_MAXIMUM_SEMAPHORES    6
 #define CONFIGURE_MAXIMUM_TASKS         6
 #define CONFIGURE_MAXIMUM_DEVICES       4
 #define CONFIGURE_MAXIMUM_REGIONS       4
 #define CONFIGURE_MAXIMUM_MESSAGE_QUEUES	0
 #define CONFIGURE_MAXIMUM_DRIVERS		4
-
 #define CONFIGURE_LIBIO_MAXIMUM_FILE_DESCRIPTORS 10
+
+#endif
+
+
 
 #define CONFIGURE_MICROSECONDS_PER_TICK 10000
 
@@ -252,8 +270,6 @@ struct rtems_bsdnet_config rtems_bsdnet_config = {
     };
 
 
-static char *tftp_prefix=0;
-
 #ifndef BARE_BOOTP_LOADER
 #define __INSIDE_NETBOOT__
 #include "nvram.c"
@@ -313,11 +329,6 @@ register unsigned long *u,*l;
 	while (!*l) l--;
 	return ((u-l)-1)*sizeof(*u);
 }
-
-extern int rcmd();
-
-#define RSH_PORT	514
-#define RSH_BUFSZ	25000000
 
 static long
 handleInput(int fd, int errfd, char *bufp, long size)
@@ -479,117 +490,6 @@ cleanup:
 	return 0;
 }
 
-static int isRshPath(char **srvname, char *path, int *perrfd)
-{
-int	fd = -1;
-char *username, *fn;
-char *chpt = *srvname;
-
-	fn = path = strdup(path);
-
-	*perrfd = -1;
-
-	/* they gave us user name */
-	username=++fn;
-	if ((fn=strchr(fn,'/'))) {
-		*(fn++)=0;
-	}
-
-	fprintf(stderr,"Loading as '%s' using RSH\n",username);
-
-	if (!fn || !*fn) {
-		fprintf(stderr,"No file; trying 'rtems.bin'\n");
-		fn="rtems.bin";
-	}
-
-	/* cat filename to command */
-	path=realloc(path,strlen(RSH_CMD)+strlen(fn)+1);
-	sprintf(path,"%s%s",RSH_CMD,fn);
-
-	fd=rcmd(&chpt,RSH_PORT,username,username,path,perrfd);
-
-	free(path);
-
-	if (fd<0) {
-		fprintf(stderr,"rcmd (%s): got no remote stdout descriptor\n",
-						strerror(errno));
-		if ( *perrfd >= 0 )
-			close( *perrfd );
-		*perrfd = -1;
-	} else if ( *perrfd<0 ) {
-		fprintf(stderr,"rcmd (%s): got no remote stderr descriptor\n",
-						strerror(errno));
-		if ( fd>=0 )
-			close( fd );
-		fd = -1;
-	}
-	return fd;
-}
-
-static int nfsInited = 0;
-
-static int isNfsPath(char **srvname, char *path, int *perrfd)
-{
-static char *lastmount = 0;
-int        fd = -1;
-
-char *col1 = 0,*col2 = 0,*slas = 0;
-
-	*perrfd = -1;
-
-	if ( 	!(col1=strchr(path,':'))
-		 || !(col2=strchr(col1+1,':'))
-		 || !(slas=strchr(path,'/'))
-         || slas!=col1+1 ) {
-		if (col1)
-			fprintf(stderr,"NFS pathspec is [host]:<path_to_mount>:<file_rel_to_mntpt>\n");
-		return -2;
-	}
-
-	if ( lastmount ) {
-		unmount(lastmount);
-		free(lastmount);
-		lastmount = 0;
-	} else if ( !nfsInited ) {
-		if ( rpcUdpInit() ) {
-			fprintf(stderr,"RPC-IO initialization failed - try RSH or TFTP\n");
-			return -1;
-		}
-		nfsInit(0,0);
-		nfsInited = 1;
-	}
-
-	*col1 = 0;
-	*col2 = 0;
-
-	if (   col1 == path
-		|| 0==strcmp(path, "BOOTP_HOST") ) {
-		if ( !*srvname ) {
-			fprintf(stderr,"No server name :-(\n");
-			goto cleanup;
-		}
-	} else {
-		/* Changed server name */
-		free(*srvname);
-		*srvname = strdup(path);
-	}
-	lastmount = malloc(strlen(*srvname)+2);
-	sprintf(lastmount,"/%s",*srvname);
-	if ( nfsMount(*srvname, col1+1, lastmount) ) {
-		unlink(lastmount);
-		free(lastmount);
-		lastmount = 0;
-	} else {
-		char *tmppath = malloc(strlen(lastmount) + strlen(col2+1) + 3);
-		sprintf(tmppath,"%s/%s",lastmount,col2+1);
-		fd = open(tmppath,O_RDONLY);
-		free(tmppath);
-	}
-
-cleanup:
-	*col1 = *col2 = ':';
-	return fd;
-}
 #else
 void __attribute__((section(".bootstrap")))
 bootstrap_everything()
@@ -644,45 +544,6 @@ BSP_pgtbl_setup(unsigned int *pmemsize)
 	return 0;
 }
 #endif /* COREDUMP_APP */
-
-static int tftpInited=0;
-
-static int isTftpPath(char **srvname, char *opath, int *perrfd)
-{
-int        fd = -1;
-char       *path;
-
-
-	*perrfd = -1;
-
- 	if (!tftpInited && rtems_bsdnet_initialize_tftp_filesystem()) {
-		fprintf(stderr,"TFTP FS initialization failed - try NFS or RSH\n");
-		return -1;
-	} else
-		tftpInited=1;
-
-	path = strdup(opath);
-
-	fprintf(stderr,"Using TFTP for transfer\n");
-	if (strncmp(path,"/TFTP/",6)) {
-		path=realloc(path,strlen(tftp_prefix)+strlen(path)+1);
-		sprintf(path,"%s%s",tftp_prefix,opath);
-	} else {
-		char *tmp;
-		/* may be necessary to rebuild the server name */
-		if ((tmp=strchr(path+6,'/'))) {
-			*tmp=0;
-			free(*srvname);
-			*srvname=strdup(path+6);
-			*tmp='/';
-		}
-	}
-	if ((fd=open(path,TFTP_OPEN_FLAGS,0))<0) {
-			fprintf(stderr,"unable to open %s\n",path);
-	}
-	free(path);
-	return fd;
-}
 
 
 #ifndef BARE_BOOTP_LOADER

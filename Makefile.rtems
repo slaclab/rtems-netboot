@@ -39,7 +39,8 @@ APPS=netboot coredump
 # Use:
 #     MANAGERS=all
 # to include all RTEMS managers in the application.
-MANAGERS=io event semaphore timer msg
+# Weird: using 'all' results in smaller image than a selected list...
+MANAGERS=all
 
 include $(RTEMS_MAKEFILE_PATH)/Makefile.inc
 
@@ -99,7 +100,7 @@ $(APPS):%:$(ARCH)/%.elf
 
 
 # each APP needs to set PGM because target dependent variable settings
-# **not** expanded in the prerequisites :-( :-(
+# are **not** expanded in the prerequisites :-( :-(
 # AND the target specific variable definition is necessary to override
 # the value used by the commands :-(. Ugly
 netboot:PGM=netboot
@@ -113,8 +114,8 @@ $(ARCH)/$(PGM).elf: $(OBJS) $(LINKFILES)
 	$(make-exe)
 
 
-$(ARCH)/netboot.o: nvram.c
-$(ARCH)/coredump.o: nvram.c
+$(ARCH)/netboot.o: nvram.c pathcheck.c
+$(ARCH)/coredump.o: nvram.c pathcheck.c
 
 term.c: termsize/term.c
 	ln -s $^ $@
