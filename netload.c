@@ -740,13 +740,12 @@ int		result=0;
 #endif
 
 	/* prompt() sets nval to NULL on special answers */
-	if (nval) {
+	if (nval || !result) {
 		if (!mandatory && 0==strcmp(nval,"0.0.0.0")) {
 			free(nval); nval=0;
-		} else {
-			free(*pval);
-			*pval=nval;
 		}
+		free(*pval);
+		*pval=nval;
 	}
 
 	return result;
