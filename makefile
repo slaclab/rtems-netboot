@@ -30,9 +30,9 @@ DEST=0
 # FLASHADDR=0x400000
 # DEST     =0x010000
 #
-# Smon0>  load "netload.gzimage" 0x400000
+# Smon0>  load "netboot.gzimage" 0x400000
 # Received 248900 bytes in 0.7 seconds.
-# loaded netload.gzimage at 400000
+# loaded netboot.gzimage at 400000
 # Smon0>  g r5
 # data copied
 # bss cleared
@@ -48,7 +48,7 @@ DEST=0
 # -----------------------------------------
 # 
 
-PROGELF=o-optimize/netload
+PROGELF=o-optimize/netboot
 # must still terminate in ".bin"
 IMGEXT=flashimg.bin
 TMPNAM=tmp

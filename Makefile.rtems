@@ -6,7 +6,7 @@
 #
 
 # C source names, if any, go here -- minus the .c
-C_PIECES=netload ctrlx
+C_PIECES=netboot ctrlx
 C_FILES=$(C_PIECES:%=%.c)
 C_O_FILES=$(C_PIECES:%=${ARCH}/%.o)
 
@@ -25,7 +25,7 @@ S_O_FILES=$(S_FILES:%.S=${ARCH}/%.o)
 SRCS=$(C_FILES) $(CC_FILES) $(H_FILES) $(S_FILES)
 OBJS=$(C_O_FILES) $(CC_O_FILES) $(S_O_FILES)
 
-PGMS=${ARCH}/netload
+PGMS=${ARCH}/netboot
 
 # List of RTEMS managers to be included in the application goes here.
 # Use:
@@ -71,7 +71,7 @@ CLOBBER_ADDITIONS +=
 
 all:	${ARCH} $(SRCS) $(PGMS)
 
-${ARCH}/netload: ${OBJS} ${LINK_FILES}
+${ARCH}/netboot: ${OBJS} ${LINK_FILES}
 	$(make-exe)
 
 # Install the program(s), appending _g or _p as appropriate.
