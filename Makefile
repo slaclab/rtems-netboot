@@ -45,7 +45,7 @@ include $(RTEMS_ROOT)/make/leaf.cfg
 DEFINES  +=
 # -DUSE_SHELL
 CPPFLAGS +=
-CFLAGS   += -I/usr/local/rtems/powerpc-rtems/include
+CFLAGS   += -I/usr/local/rtems/powerpc-rtems/include $(DEBUG)
 
 #
 # CFLAGS_DEBUG_V are used when the `make debug' target is built.

@@ -550,6 +550,9 @@ register unsigned long algn;
 	bringdown_netifs(rtems_bsdnet_config.ifconfig);
 
 	fprintf(stderr,"Starting loaded image @%p NOW...\n\n\n",buf);
+#ifdef DEBUG
+	fprintf(stderr,"Cmdline @%p: '%s'\n",cmdline,cmdline);
+#endif
 
 	/* make sure they see our messages */
 	fflush(stderr); fflush(stdout);
@@ -1345,6 +1348,8 @@ rtems_task Init(
 				strcpy(cmdline, bootparms);
 			}
 
+			p=parmList;
+
 			/* then we append a bunch of environment variables */
 			if ( !rtems_bsdnet_config.bootp )
 				end = p+1000; /* will encounter the end mark */
@@ -1353,7 +1358,7 @@ rtems_task Init(
 			else
 				end = p;
 
-			for (p=parmList; p<end && p->name; p++) {
+			for (; p<end && p->name; p++) {
 				char *v;
 				int		incr;
 
