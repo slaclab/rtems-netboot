@@ -39,7 +39,7 @@
 #error This application (NVRAM code sections) only works on Synergy VGM BSP
 #endif
 
-#define DELAY_MIN "1"
+#define DELAY_MIN "0"	/* 0 means forever */
 #define DELAY_MAX "30"
 #define DELAY_DEF "2"
 
@@ -80,6 +80,9 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 #define CONFIGURE_LIBIO_MAXIMUM_FILE_DESCRIPTORS 20
 
 #define CONFIGURE_MICROSECONDS_PER_TICK 10000
+
+/* readline uses 'setjmp' which saves/restores floating point registers */
+#define CONFIGURE_INIT_TASK_ATTRIBUTES RTEMS_FLOATING_POINT
 
 #define CONFIGURE_INIT
 rtems_task Init (rtems_task_argument argument);
@@ -221,6 +224,19 @@ readNVRAM(Parm parmList);
 
 static void
 writeNVRAM(Parm parmList);
+
+static int
+shallIreboot(int a1, int a2)
+{
+char ch='N';
+fprintf(stderr,"\nDo you really want to reboot?");
+read(0,&ch,1);
+if ('Y'==toupper(ch))
+	rtemsReboot();
+else
+	fprintf(stderr," - NO\n");
+return 0;
+}
 
 /* NOTE: rtems_bsdnet_ifconfig(,SIOCSIFFLAGS,) does only set, but not
  *       clear bits in the flags !!
@@ -396,73 +412,75 @@ static int getNum();
  */
 static ParmRec parmList[]={
 	{ "BP_FILE=",  &filename,
-			"Boot file name (may be '~user/path' to specify rsh user): ",
+			"Boot file name (may be '~user/path' to specify rsh user):\n"
+			" >",
 			getString,		FLAG_MAND,
 	},
 	{ "BP_PARM=",  &bootparms,
-			"Command line parameters: ",
+			"Command line parameters:\n"
+			" >",
 			getCmdline,		FLAG_NOUSE,
 	},
 	{ "BP_SRVR=",  &srvname,
-			"Server IP:    ",
+			"Server IP:    >",
 			getIpAddr,		FLAG_MAND,
 	},
 	{ "BP_GTWY=",  &rtems_bsdnet_config.gateway,
-			"Gateway IP:   ",
+			"Gateway IP:   >",
 			getIpAddr,		FLAG_CLRBP, 
 	},
 	{ "BP_MYIP=",  &eth_ifcfg.ip_address,
-			"My IP:        ",
-			getIpAddr,		FLAG_MAND | FLAG_CLRBP,
+			"My IP:        >",
+			getIpAddr,		FLAG_MAND| FLAG_CLRBP,
 	},
 	{ "BP_MYMK=",  &eth_ifcfg.ip_netmask,
-			"My netmask:   ",
+			"My netmask:   >",
 			getIpAddr,		FLAG_MAND | FLAG_CLRBP,
 	},
 	{ "BP_MYNM=",  &rtems_bsdnet_config.hostname,
-			"My name:      ",
+			"My name:      >",
 			getString,		FLAG_CLRBP,
 	},
 	{ "BP_MYDN=",  &rtems_bsdnet_config.domainname,
-			"My domain:    ",
+			"My domain:    >",
 			getString,		FLAG_CLRBP,
 	},
 	{ "BP_LOGH=",  &rtems_bsdnet_config.log_host,
-			"Loghost IP:   ",
+			"Loghost IP:   >",
 			getIpAddr,		FLAG_CLRBP,
 	},
 	{ "BP_DNS1=",  &rtems_bsdnet_config.name_server[0],
-			"DNS server 1: ",
+			"DNS server 1: >",
 			getIpAddr,		FLAG_CLRBP,
 	},
 	{ "BP_DNS2=",  &rtems_bsdnet_config.name_server[1],
-			"DNS server 2: ",
+			"DNS server 2: >",
 			getIpAddr,		FLAG_CLRBP,
 	},
 	{ "BP_DNS3=",  &rtems_bsdnet_config.name_server[2],
-			"DNS server 3: ",
+			"DNS server 3: >",
 			getIpAddr,		FLAG_CLRBP,
 	},
 	{ "BP_NTP1=",  &rtems_bsdnet_config.ntp_server[0],
-			"NTP server 1: ",
+			"NTP server 1: >",
 			getIpAddr,		FLAG_CLRBP,
 	},
 	{ "BP_NTP2=",  &rtems_bsdnet_config.ntp_server[1],
-			"NTP server 2: ",
+			"NTP server 2: >",
 			getIpAddr,		FLAG_CLRBP,
 	},
 	{ "BP_NTP3=",  &rtems_bsdnet_config.ntp_server[2],
-			"NTP server 3: ",
+			"NTP server 3: >",
 			getIpAddr,		FLAG_CLRBP,
 	},
 	{ "BP_ENBL=",  &use_bootp,
-			"Use bootp [Y/N]:             ",
+			"Use bootp:                          [Y/N] >",
 			getYesNo,		0,
 	},
 	{ "BP_DELY=",  &auto_delay_secs,
-			"Autoboot Delay ["
-					DELAY_MIN"..."
-					DELAY_MAX     "secs]: ",
+			"Autoboot Delay: ["
+					DELAY_MIN "..."
+					DELAY_MAX      "secs] (0==forever) >",
 			getNum,			FLAG_NOUSE,
 	},
 	{ 0, }
@@ -777,8 +795,9 @@ help(void)
 	printf("\n");
 	printf("Press 'c' for changing your NVRAM configuration\n");
 	printf("Press 'b' for manually entering filename/cmdline parameters only\n");
-	printf("Press 'a' for continuing the automatic netboot\n");
+	printf("Press '@' for continuing the netboot\n");
 	printf("Press 's' for showing the current NVRAM configuration\n");
+	printf("Press 'R' to reboot now (you can always hit <Ctrl>-C to reboot)\n");
 	printf("Press any other key for this message\n");
 }
 
@@ -791,11 +810,18 @@ Parm p;
 	} else {
 		fprintf(stderr,"\nNVRAM configuration:\n\n");
 		for (p=parmList; p->name; p++) {
-			fprintf(stderr,"  %s%s\n",
-				p->prompt,
-				*p->pval ? *p->pval : "");
+			char *chpt;
+			fputs("  ",stderr);
+			for (chpt=p->prompt; *chpt; chpt++) {
+				fputc(*chpt,stderr);
+				if ('\n'==*chpt)
+					fputs("  ",stderr); /* indent */
+			}
+			if (*p->pval)
+				fputs(*p->pval,stderr);
+			fputc('\n',stderr);
 		}
-		fprintf(stderr,"\n");
+		fputc('\n',stderr);
 	}
 	return -1; /* continue looping */
 }
@@ -1039,6 +1065,9 @@ rtems_task Init(
 	use_bootp=strdup(use_bootp);
 	auto_delay_secs=strdup(auto_delay_secs);
 
+	/* bind the reset routine to <Ctrl>-C (ascii 3) */
+	rl_bind_key(3,shallIreboot);
+
 #define SADR rtems_bsdnet_bootp_server_address
 #define BOFN rtems_bsdnet_bootp_boot_file_name
 
@@ -1068,13 +1097,20 @@ rtems_task Init(
 			if (tcsetattr(0,TCSANOW,&nt)) {
 				perror("TCSETATTR");
 			} else {
-				unsigned secs;
-				fprintf(stderr,"\n\nType any character to abort netboot:xx");
+				int secs;
 				/* it was previously verified that auto_delay_secs contains
 				 * a valid string...
 				 */
-				for (secs=strtoul(auto_delay_secs,0,0); secs; secs--) {
-					fprintf(stderr,"\b\b%2i",secs);
+				secs=strtoul(auto_delay_secs,0,0);
+				if (secs<=0) {
+					secs=-1;	/* forever */
+					help();		/* display options */
+				} else {
+					fprintf(stderr,"\n\nType any character to abort netboot:xx");
+				}
+				while (secs) {
+					if (secs>0)
+						fprintf(stderr,"\b\b%2i",secs--);
 					if (read(0,&ch,1)) {
 						/* got a character; abort */
 						fputc('\n',stderr);
@@ -1095,7 +1131,9 @@ rtems_task Init(
 								case 's':	manual=showConfig();break;
 								case 'c':	manual=config(1000);break;
 								case 'b':	manual=1;			break;
-								case 'a':	manual=0;			break;
+								case '@':	manual=0;			break;
+								case  3 :   /* <Ctrl>-C */
+								case 'R':	rtemsReboot(); /* never get here */
 								default: 	manual=-1;
 											break;
 							}
