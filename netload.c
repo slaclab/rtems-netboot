@@ -1155,16 +1155,18 @@ rtems_task Init(
 						do {
 							fputc('\n',stderr);
 							switch (ch) {
-								case 's':	manual=showConfig(1);break;
-								case 'c':	manual=config(1000);break;
-								case 'b':	manual=1;			break;
-								case '@':	manual=0;			break;
-								case 'd':	manual=0; enforceBootp=1; break;
-								case 'm':	manual=0; enforceBootp=-1; break;
+								case 's':	manual=showConfig(1);		break;
+								case 'c':	manual=config(1000);		break;
+								case 'b':	manual=1;					break;
+								case '@':	manual=0;					break;
+								case 'd':	manual=0; enforceBootp=1;	break;
+								case 'm':	manual=0; enforceBootp=-1;	break;
+
 								case CTRL_C:
 								case 'R':	rtemsReboot(); /* never get here */
+										break;
 								default: 	manual=-1;
-											break;
+										break;
 							}
 							if (-1==manual)
 								help();
@@ -1212,7 +1214,7 @@ rtems_task Init(
 	{
 			/* check if they want us to use bootp or not */
 			if (!enforceBootp)
-				enforceBootp = (*use_bootp && 'N' == toupper(*use_bootp)) ? -1 : 1; 
+				enforceBootp = ((*use_bootp && 'N' == toupper(*use_bootp)) ? -1 : 1); 
 			if (enforceBootp<0) {
 				rtems_bsdnet_config.bootp = 0;
 				if (!manual) manual = -2;
@@ -1239,8 +1241,10 @@ rtems_task Init(
 
 	if (manual>=0) {
 		/* -2 means we have a manual IP configuration */
-		if (BOFN)
+		if (BOFN) {
+			free(filename);
 			filename=strdup(BOFN);
+		}
 		srvname = strdup("xxx.xxx.xxx.xxx.");
 		if (!inet_ntop(AF_INET,&SADR,srvname,strlen(srvname))) {
 			free(srvname);
