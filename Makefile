@@ -59,7 +59,7 @@ IMGEXT=.flashimg.bin
 TMPNAM=tmp
 MAKEFILE=Makefile
 
-SCRIPTS=smonscript.st reflash.st
+SCRIPTS=smonscript.st reflash.st coredump.st
 
 include $(RTEMS_MAKEFILE_PATH)/Makefile.inc
 include $(RTEMS_CUSTOM)
