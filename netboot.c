@@ -47,7 +47,12 @@ static int nfsInited     = 0;
 #endif
 
 static int tftpInited    = 0;
-static char *tftp_prefix = 0;
+
+#ifndef COREDUMP_APP
+#define RSH_SUPPORT
+#define NFS_SUPPORT
+#endif
+#define TFTP_SUPPORT
 
 #include "pathcheck.c"
 
@@ -612,7 +617,7 @@ char buf[4];
 
 		do {
 			callGet(ctx, FILENAME_IDX, 1 /* loop until valid answer */);
-		} while ( (fd=isTftpPath(&srvname, filename, &dummy)) < 0 );
+		} while ( (fd=isTftpPath(&srvname, filename, &dummy, 0)) < 0 );
 		do {
 			while ( getNum(ctx, "Enter Start Address> ", &sstr, 1) )
 				;
@@ -654,6 +659,7 @@ char buf[4];
 }
 
 #else
+
 static void
 doIt(int manual, int enforceBootp, NetConfigCtxt ctx)
 {
@@ -667,15 +673,26 @@ int  i;
 			callGet(ctx, FILENAME_IDX, 1 /* loop until valid answer */);
 		}
 
-		if ( filename && '~'==*filename ) {
-			if (manual>0 || !srvname) {
-				if (!srvname)
-					fprintf(stderr,"Unable to convert server address to name\n");
-				callGet(ctx, SERVERIP_IDX, 1/*loop until valid*/);
+		if ( strchr(filename,'~') ) {
+			do {
+				if ( manual>0 || ( !srvname && '~'==*filename ) ) {
+					if (!srvname)
+						fprintf(stderr,"Unable to convert server address to name\n");
+					callGet(ctx, SERVERIP_IDX, 1/*loop until valid*/);
+				}
+			} while ( -10 == (fd = isRshPath(&srvname, filename, &errfd, 0)) );
+		} else {
+			releaseMount( 0 );
+		 	if ( (fd = isNfsPath(&srvname, filename, &errfd, 0, 0)) < -10 ) {
+				if ( -2 == fd ) {
+					/* not strictly necessary here - just to remind us that
+					 * the file couldn't be opened but the mount was OK
+					 */
+					fprintf(stderr,"NFS mount OK but file couldn't be opened\n");
+					releaseMount( 0 );
+				}
+				fd = isTftpPath(&srvname, filename, &errfd, 0);
 			}
-			fd = isRshPath(&srvname, filename, &errfd);
-		} else if ( (fd = isNfsPath(&srvname, filename, &errfd)) < -1 ) {
-			fd = isTftpPath(&srvname, filename, &errfd);
 		}
 
 		if ( fd < 0 )
@@ -719,7 +736,7 @@ int  i;
 				*dst-- = 0;
 				*dst   = '\'';
 				bootparms = quoted;
-			} else if (manual>0) {
+			} else if (manual>0 || 2==enforceBootp) {
 				/* they manually force 'no commandline' */
 				bootparms = quoted = strdup("''");
 			}
@@ -811,8 +828,6 @@ rtems_task Init(
 #define SADR rtems_bsdnet_bootp_server_address
 #define BOFN rtems_bsdnet_bootp_boot_file_name
 #define BCMD rtems_bsdnet_bootp_cmdline
-
-	tftp_prefix=strdup(TFTP_PREFIX);
 
 #ifndef COREDUMP_APP
 	fprintf(stderr,"\n\nRTEMS bootloader by Till Straumann <strauman@slac.stanford.edu>\n");
@@ -956,11 +971,6 @@ rtems_task Init(
 			if (enforceBootp<0) {
 				rtems_bsdnet_config.bootp = 0;
 				if (!manual) manual = -2;
-
-				/* rebuild tftp_prefix */
-				free(tftp_prefix);
-				tftp_prefix=malloc(strlen(TFTP_PREPREFIX)+strlen(srvname)+2);
-				sprintf(tftp_prefix,"%s%s/",TFTP_PREPREFIX,srvname);
 			} else {
 				/* clear the 'bsdnet' fields - it seems that the bootp subsystem
 				 * expects NULL pointers...
@@ -977,7 +987,7 @@ rtems_task Init(
 
   	rtems_bsdnet_initialize_network(); 
 
-	if (enforceBootp >= 0 && enforceBootp < 2) {
+	if (enforceBootp >= 0) {
 		/* use filename/server supplied by bootp */
 		if (BOFN) {
 			free(filename);
@@ -991,7 +1001,12 @@ rtems_task Init(
 			free(srvname);
 			srvname=0;
 		}
+
 	}
+
+	/* rebuild path_prefix */
+	path_prefix=realloc(path_prefix, strlen(TFTP_PREPREFIX)+strlen(srvname)+2);
+	sprintf(path_prefix,"%s%s/",TFTP_PREPREFIX,srvname);
 
 	doIt(manual, enforceBootp, &ctx);
 
