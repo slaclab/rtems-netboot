@@ -36,9 +36,7 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 
 #define CONFIGURE_RTEMS_INIT_TASKS_TABLE
 
-#if defined(USE_SHELL) || defined(USE_CEXP)
 #define CONFIGURE_USE_IMFS_AS_BASE_FILESYSTEM
-#endif
 
 #define CONFIGURE_MAXIMUM_SEMAPHORES    4
 #define CONFIGURE_MAXIMUM_TASKS         4
@@ -270,22 +268,13 @@ register char *end=start+size;
 }
 
 static char *
-rshLoad(char *host, char *user, char *cmd)
+doLoad(long fd, long errfd)
 {
 rtems_interrupt_level l;
-char *chpt=host,*buf,*mem=0;
-long fd,errfd,ntot;
+char *buf,*mem=0;
+long ntot;
 register unsigned long algn;
 
-	fd=rcmd(&chpt,RSH_PORT,user,user,cmd,&errfd);
-	if (fd<0) {
-		fprintf(stderr,"rcmd: got no remote stdout descriptor\n");
-		goto cleanup;
-	}
-	if (errfd<0) {
-		fprintf(stderr,"rcmd: got no remote stderr descriptor\n");
-		goto cleanup;
-	}
 	if (!(mem=buf=malloc(RSH_BUFSZ))) {
 		fprintf(stderr,"no memory\n");
 		goto cleanup;
@@ -329,10 +318,14 @@ rtems_task Init(
 )
 {
 
+  int tftpInited=0;
+
   rtems_bsdnet_initialize_network(); 
 #ifdef USE_CEXP
   if (rtems_bsdnet_initialize_tftp_filesystem())
-	rtems_panic("TFTP FS initialization failed");
+	BSP_panic("TFTP FS initialization failed");
+  else
+	tftpInited=1;
 #endif
 #if 0
   rtems_initialize_telnetd();
@@ -351,30 +344,21 @@ rtems_task Init(
 #ifndef USE_CEXP
   {
 #define FNSZ	500
-	char srvname[50];
-	char cmd[FNSZ+8],*fn;
+	char srvname[50],*chpt;
+	char cmd[FNSZ+30],*fn;
 	char ubuf[20];
 	char *username;
-	int  i,ch,again;
+	int  i,ch,again,useTftp,fd,errfd;
 	extern struct in_addr rtems_bsdnet_bootp_server_address;
 	extern char           *rtems_bsdnet_bootp_boot_file_name;
 #define SADR rtems_bsdnet_bootp_server_address
 #define BOFN rtems_bsdnet_bootp_boot_file_name
 #define filename (cmd+4)
+#define TFTP_PREFIX "/TFTP/BOOTP_HOST/"
 
 	for (again=0;1;again=1) {
+		memset(cmd,0,sizeof(cmd));
 		strcpy(cmd,"cat ");
-		if (again || !inet_ntop(AF_INET,&SADR,srvname,sizeof(srvname))) {
-			if (!again)
-				fprintf(stderr,"Unable to convert server address to name\n");
-		   	fprintf(stderr,"Enter server IP (dot.not):");
-			for (i=0; i<sizeof(srvname)-1 && (ch=getchar())>0 &&
-				('.'==ch || ('0'<=ch && '9'>=ch)); i++)
-				srvname[i]=(char)ch;
-			srvname[i]=0;
-			fprintf(stderr,"\n");
-		}
-
 		if (again  || !(BOFN)) {
 			if (!again)
 				fprintf(stderr,"Didn't get a filename from DHCP server\n");
@@ -384,11 +368,26 @@ rtems_task Init(
 			}
 			filename[i]=0;
 		} else {
-			strcpy(filename,BOFN);
+			strncpy(filename,BOFN,FNSZ);
 		}
 		fn=filename;
-		if ('~'==*fn) {
+
+		useTftp = fn && '~'!=*fn;
+
+		if (!useTftp) {
 			char *dst;
+
+			if (again || !inet_ntop(AF_INET,&SADR,srvname,sizeof(srvname))) {
+				if (!again)
+					fprintf(stderr,"Unable to convert server address to name\n");
+				fprintf(stderr,"Enter server IP (dot.not):");
+				for (i=0; i<sizeof(srvname)-1 && (ch=getchar())>0 &&
+					('.'==ch || ('0'<=ch && '9'>=ch)); i++)
+						srvname[i]=(char)ch;
+				srvname[i]=0;
+				fprintf(stderr,"\n");
+			}
+
 			/* they gave us user name */
 			username=++fn;
 			if ((fn=strchr(fn,'/')))
@@ -402,15 +401,42 @@ rtems_task Init(
 			}
 			/* cat filename to command */
 			for (dst=filename; (*dst++=*fn++););
+			chpt=srvname;
+			fd=rcmd(&chpt,RSH_PORT,username,username,cmd,&errfd);
+			if (fd<0) {
+				fprintf(stderr,"rcmd (%s): got no remote stdout descriptor\n",
+								strerror(errno));
+				continue;
+			}
+			if (errfd<0) {
+				fprintf(stderr,"rcmd (%s): got no remote stderr descriptor\n",
+								strerror(errno));
+				continue;
+			}
 		} else {
-			fprintf(stderr,"No user; trying 'rtems'\n");
-			username="rtems";
+#ifndef USE_CEXP
+  			if (!tftpInited && rtems_bsdnet_initialize_tftp_filesystem())
+				BSP_panic("TFTP FS initialization failed");
+			else
+				tftpInited=1;
+#endif
+			fprintf(stderr,"No user; using TFTP for download\n");
+			if (strlen(BOFN) + 50>sizeof(cmd))
+					BSP_panic("Filename Buffer Overflow");
+			if (strncmp(filename,"/TFTP/",6)) {
+				memmove(filename+strlen(TFTP_PREFIX),filename,strlen(filename)+1);
+				memcpy(filename,TFTP_PREFIX,strlen(TFTP_PREFIX));
+			}
+			if ((fd=open(filename,O_RDONLY,0))<0) {
+					fprintf(stderr,"unable to open %s\n",filename);
+					continue;
+			}
+			errfd=-1;
 		}
 #if 1
 		fprintf(stderr,"Hello, this is the RTEMS remote loader; trying to load '%s'\n",
 						filename);
-		rshLoad(srvname,username,cmd);
-		fprintf(stderr,"Unable to rsh '%s'\n",cmd);
+		doLoad(fd,errfd);
 #else
 		fprintf(stderr,"Server: '%s'\n",srvname);
 		fprintf(stderr,"user:   '%s'\n",username);
@@ -423,10 +449,6 @@ rtems_task Init(
 	static int argc=2;
 	static char *argv[]={"cexp","/TFTP/BOOTP_HOST/svimg.syms",0};
 	char *buf=0;
-	/*
-	buf=rshLoad("134.79.33.86","vxtarget");
-	fprintf("loaded a buffer at %p\n",buf);
-	*/
 	cexp_main(argc,argv);
 	free(buf);
 	argc=1; /* prevent from re-loading the symtab */

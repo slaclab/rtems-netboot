@@ -5,10 +5,8 @@
 # 	Template leaf node Makefile
 #
 
-FLASHADDR=-Wl,--defsym=flashaddr=0xfff80000
-
 # C source names, if any, go here -- minus the .c
-C_PIECES=init bspstart rsh rcmd
+C_PIECES=init vmeconfig
 C_FILES=$(C_PIECES:%=%.c)
 C_O_FILES=$(C_PIECES:%=${ARCH}/%.o)
 
@@ -20,7 +18,7 @@ CC_O_FILES=$(CC_PIECES:%=${ARCH}/%.o)
 H_FILES=
 
 # Assembly source names, if any, go here -- minus the .S
-S_PIECES=jump
+S_PIECES=
 S_FILES=$(S_PIECES:%=%.S)
 S_O_FILES=$(S_FILES:%.S=${ARCH}/%.o)
 
@@ -58,7 +56,7 @@ CFLAGS   +=
 
 LD_PATHS  +=
 LD_LIBS   += -lcexp -lelf -lreadline -ltermcap -lregexp
-LDFLAGS   += $(FLASHADDR) -L/usr/local/rtems/powerpc-rtems/lib
+LDFLAGS   += -L/usr/local/rtems/powerpc-rtems/lib
 
 #
 # Add your list of files to delete here.  The config files

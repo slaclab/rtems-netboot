@@ -1,0 +1,159 @@
+$Id$
+
+Using the VGM remote boot loader
+--------------------------------
+
+The VGM remote boot loader itself is an RTEMS
+application intended to download other RTEMS applicatins.
+
+RATIONALE: 
+  - the VGM SMON firmware doesn't support BOOTP/DHCP,
+    hence all VGM boards would need manual boot parameter
+    configuration stored into NVRAM.
+  - having a dedicated loader would require adding networking
+    support etc.
+
+The remote loader is a tiny RTEMS application which can be
+stored into VGM flash.
+
+When started, the loader tries to get the 
+  - VGM IP address	(mandatory)
+  - IP subnet mask  (mandatory)
+  - server address
+  - gateway address
+  - VGM hostname
+  - log server address
+  - boot file name
+using the DHCP protocol.
+
+It then tries to download the 'boot file' from the
+'server' using either the 'rsh' or the 'tftp' protocol.
+
+RSH download
+- - - - - - -
+A file name starting with a '~' (tilde) directs the
+loader to issue a 
+
+	rsh -l <user> cat <file>
+
+command for downloading the image. <user> and <filename>
+are extracted from the DHCP 'filename' answer:
+
+    '~' <user> '/' <file>
+
+i.e. <file> is relative to <user>'s home directory.
+
+TFTP download
+- - - - - - -
+If the filename has no initial '~', RTEMS' ordinary
+TFTP filesystem will be used for downloading the
+image. If the filename has no initial "/TFTP"
+prefix, "/TFTP/BOOTP_HOST" will be used, instructing
+the loader to connect to the server whose address
+was obtained using DHCP. Alternatively, a 'dot'
+notation IP address may denote the TFTP server:
+
+	'/TFTP/134.79.35.35/imagefile'
+
+Manual ServerIP / Filename configuration
+- - - - - - - - - - - - - - - - - - - - -
+If no filename / server are supplied or if the
+download fails, the respective parameters may
+be entered manually on the console. They are
+interpreted exactly the same way as described
+above.
+
+BURNING THE VGM FLASH
+---------------------
+
+VGM boards have a restriction on using the onboard
+flash rom:
+
+Only a small range (512k) of physical address space
+is available for addressing flash devices 
+
+	(0xfff80000 - 0xffffffff)
+
+(NOTE: the boot device's [flash or eprom] first 512k
+may also be addressed at 0xfffe0000-0xfffe7fff)!
+
+This address space (i.e. the 0xfff80000-0xffffffff range)
+must be shared among different devices:
+  - socketed flash/EPROM
+  - boot flash
+  - user flash
+
+Different boot loaders (e.g. for vxWorks and for
+RTEMS) can be programmed into different 512k flash
+banks. The SMON commands
+	flashAdr()				(map a flash range to 0xfff80000...)
+	flashWrite()			(write a memory block to flash and verify)
+	flashEraseBlock()		(selectively erase blocks)
+	flashNumBlocks()		(get # of blocks)
+	flashBlockSize()		(get block size)
+	vxboot()
+are interesting in this context.
+
+The vxboot seems to look for a vxWorks bootrom in the
+first 512k bank. Hence, it makes sense to write the
+RTEMS loader to any other bank:
+
+	SMon0> flashBlockSize 2
+	 value = 0x20000 = 131072
+
+We want to erase (and later write the RTEMS loader)
+to the second bank of the user flash (id 2),
+hence we start with erasing blocks 4..7
+(using the blocksize info of 0x20000) of the user flash:
+
+    SMon0> flashWrEn 0			/* enable writing user flash */
+	SMon0> flashEraseBlock 4 2
+	SMon0> flashEraseBlock 5 2
+	SMon0> flashEraseBlock 6 2
+	SMon0> flashEraseBlock 7 2
+
+Now, we download the binary image of the loader
+itself:
+
+	SMon0> load "rtemsloader.img"
+	Received 376944 bytes in 6.0 seconds.
+	loaded img at 10000                                                                                                              
+	SMon0>
+
+get the image size:
+
+	SMon0> r6-r5
+	 value = 0x5C070 = 376944
+
+write the flash...
+NOTE: DONT use flashCopy() because it erases the _entire_
+flash device, not only the destination area!
+The 0x80000 'offset' parameter directs SMON to
+write the image to the second 512k bank of user flash (id 2)
+
+	SMon0> flashWrite 0x80000 0x10000 0x5c070 2
+
+STARTING THE RTEMS LOADER
+-------------------------
+1) Map flash bank to flash address window (this example
+   uses the second bank as used by the programming example
+   above) and set the PC (location counter) to the
+   resulting address:
+
+    SMon0> pc=flashAdr(0x80000,2)
+	 value = 0xFFF80000 = -524288
+
+2) Clear r5 and r6. This instructs the loader to automatically
+   calculate its own start address and length.
+
+	SMon0> r5=0; r6=0
+	 value = 0
+
+3) fire off
+
+	SMon0> g
+
+NOTE: these instructions may be written to a script, e.g. called
+    "rtems" which in turn may be called from the startup script
+    (execEB "rtems") [use indirection to simply switch between
+    different scripts]
