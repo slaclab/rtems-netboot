@@ -45,18 +45,23 @@
 #define DELAY_MAX "30"
 #define DELAY_DEF "2"
 
-#define CTRL_C		3	/* ASCII for Ctrl-C */
+#define CTRL_C		003	/* ASCII ETX */
+#define CTRL_D		004 /* ASCII EOT */
+#define CTRL_G		007 /* ASCII EOT */
+#define CTRL_K		013 /* ASCII VT  */
+#define CTRL_O		017 /* ASCII SI  */
+#define CTRL_R		022 /* ASCII DC2 */
+#define CTRL_X		030 /* ASCII CAN */
 
 /* special answers */
-#define SPC_STOP 1
-#define SPC_UP   2
-#define SPC_ESC  3
+#define SPC_STOP		CTRL_G
+#define SPC_RESTORE		CTRL_R
+#define SPC_UP			CTRL_K
+#define SPC_REBOOT		CTRL_X
+#define SPC_ESC			CTRL_C
+#define SPC_CLEAR_UNDO	CTRL_O
 
-#define STR_STOP "."
-#define STR_UP   "^"
-#define STR_ESC  "@"
-
-
+#define SPC2CHR(spc) ((spc)+'a'-1) 
 
 #include <readline/readline.h>
 #include <readline/history.h>
@@ -489,7 +494,7 @@ void incharIntercept(struct termios *t, void *arg)
 /* Note that struct termios is not struct rtems_termios_tty */ 
 struct rtems_termios_tty *tty = (struct rtems_termios_tty*)arg;
 	/* did they just press Ctrl-C? */
-	if (CTRL_C == tty->rawInBuf.theBuf[tty->rawInBuf.Tail]) {
+	if (CTRL_X == tty->rawInBuf.theBuf[tty->rawInBuf.Tail]) {
 			/* OK, we shouldn't call anything from IRQ context,
 			 * but for reboot - who cares...
 			 */
@@ -587,6 +592,46 @@ cleanup:
 	return 0;
 }
 
+/* handle special characters; i.e. insert
+ * them at the beginning of the current line
+ * and accept the line.
+ * Our 
+ */
+static int
+handle_spc(int count, int k)
+{
+char t[2];
+	t[0]=k; t[1]=0;
+	if (SPC_REBOOT == k)
+		rtemsReboot();
+	rl_beg_of_line(0,k);
+	rl_insert_text(t);
+	return rl_newline(1,k);
+}
+
+static int
+hack_undo(int count, int k)
+{
+  rl_free_undo_list();
+  return 0;
+}
+
+static void
+installHotkeys(void)
+{
+  rl_bind_key(SPC_UP,handle_spc);
+  rl_bind_key(SPC_STOP,handle_spc);
+  rl_bind_key(SPC_ESC,handle_spc);
+}
+
+static void
+uninstallHotkeys(void)
+{
+  rl_unbind_key(SPC_UP);
+  rl_unbind_key(SPC_STOP);
+  rl_unbind_key(SPC_ESC);
+}
+
 
 /* The callers of this routine rely on not
  * getting an empty string.
@@ -599,32 +644,49 @@ prompt(char *pr, char *proposal, char **answer)
 char *nval;
 int rval=0;
 	if (proposal) {
+		/* readline doesn't allow us to give a 'start' value
+		 * therefore, we apply this ugly hack:
+		 * we stuff the characters back into the input queue
+		 */
 		while (*proposal)
 			rl_stuff_char(*proposal++);
+		/* a special hack which will reset the undo list */
+		rl_stuff_char(SPC_CLEAR_UNDO);
 	}
 	nval=readline(pr);
 	if (!*nval) {
 		free(nval); nval=0; /* discard empty answer */
 	}
 	if (nval) {
-		char *dst,*src;
+		register char *src, *dst;
 		/* strip leading whitespace */
 		for (src=nval; ' '==*src || '\t'==*src; src++);
 		if (src>nval) {
 			dst=nval;
 			while ((*dst++=*src++));
 		}
-		if (*nval) {
-			if      (0==strcmp(nval,STR_STOP)) rval = SPC_STOP;
-			else if (0==strcmp(nval,STR_UP))   rval = SPC_UP;
-			else if (0==strcmp(nval,STR_ESC))  rval = SPC_ESC;
-			else {
+		switch (*nval) {
+			case SPC_STOP:
+			case SPC_UP:
+			case SPC_ESC:
+			/* SPC_REBOOT is processed by the lowlevel handler */
+				rval = *nval;
+
+				/* rearrange string to skip the special character */
+				
+				if (SPC_ESC != *(src=dst=nval) && *++src) {
+					while ((*dst++=*src++)) /* do nothing else */;
+				} else {
+					free(nval);
+					nval = 0;
+				}
+			break;
+
+			default:
 				add_history(nval);
-			}
-			if (rval) {
-				free (nval);
-				nval=0;
-			}
+			case 0:
+				break;
+
 		}
 	}
 	*answer=nval;
@@ -666,6 +728,7 @@ int		result=0;
 			if (!inet_aton(nval,&inDummy)) {
 				fprintf(stderr,"Invalid address, try again\n");
 				free(nval); nval=0;
+				result = 0;
 				if (!mandatory)
 					mandatory=-1;
 			}
@@ -720,6 +783,7 @@ int  result=0;
 						if (!mandatory) mandatory=-1;
 						/* fall thru */
 				case 0:	free(nval); nval=0;
+						result = 0;
 				break;
 			}
 		}
@@ -748,6 +812,7 @@ int  result=0;
 				fprintf(stderr,"Not a valid number - try again\n");
 				free(nval); nval=0;
 				if (!mandatory) mandatory=-1;
+				result = 0;
 			}
 		}
 	} while (!result && !nval && mandatory);
@@ -833,7 +898,7 @@ help(void)
 	printf("Press '@' for continuing the netboot (DHCP flag from NVRAM)\n");
 	printf("Press 'd' for continuing the netboot; enforce using DHCP\n");
 	printf("Press 'm' for continuing the netboot; enforce using NVRAM config\n");
-	printf("Press 'R' to reboot now (you can always hit <Ctrl>-C to reboot)\n");
+	printf("Press 'R' to reboot now (you can always hit <Ctrl>-%c to reboot)\n",SPC2CHR(SPC_REBOOT));
 	printf("Press any other key for this message\n");
 }
 
@@ -872,14 +937,23 @@ int  i=0;
 Parm p;
 
 	fprintf(stderr,"Changing NVRAM configuration\n");
-	fprintf(stderr,"Use '%s' field value to go up\n",      STR_UP);
-	fprintf(stderr,"Use '%s' field value to quit+write\n", STR_STOP);
-	fprintf(stderr,"Use '%s' field value to quit+cancel\n",STR_ESC);
+	fprintf(stderr,"Use '<Ctrl>-%c' to go up to previous field\n",
+				SPC2CHR(SPC_UP));
+	fprintf(stderr,"Use '<Ctrl>-%c' to restore this field\n",
+				SPC2CHR(SPC_RESTORE));
+	fprintf(stderr,"Use '<Ctrl>-%c' to quit+write NVRAM\n",
+				SPC2CHR(SPC_STOP));
+	fprintf(stderr,"Use '<Ctrl>-%c' to quit+cancel (all values are restored)\n",
+				SPC2CHR(SPC_ESC));
+	fprintf(stderr,"Use '<Ctrl>-%c' to reboot\n",
+				SPC2CHR(SPC_REBOOT));
 
-if		(howmany<1)
+if	(howmany<1)
 	howmany=1;
 else if	(howmany > sizeof(parmList)/sizeof(parmList[0]) - 1)
 	howmany = sizeof(parmList)/sizeof(parmList[0]) - 1;
+
+installHotkeys();
 
 while ( i>=0 && i<howmany ) {
 	switch (callGet(parmList[i].getProc,
@@ -900,28 +974,33 @@ while ( i>=0 && i<howmany ) {
 
 		case SPC_STOP:  i=-1;
 		break;
+
 		case SPC_UP:	if (0==i)
-							i=howmany;
+							i=howmany-1;
 						else
 							i--;
 		break;
+
+		/* SPC_REBOOT is processed directly by the handler  */
 
 		default:		i++;
 		break;
 	}
 }
 
+uninstallHotkeys();
+
 /* make sure we have all mandatory parameters */
 for (p=parmList; p->name; p++) {
-	if ( (p->flags&FLAG_MAND) && !*p->pval ) {
-		do {
+	if ( (p->flags&FLAG_MAND) ) {
+		while ( !*p->pval) {
 			fprintf(stderr,"Need parameter...\n");
 			callGet(p->getProc,
 					p->prompt,
 					p->pval,
 					FLAG_MAND,
 					0);
-		} while (!*p->pval);
+		}
 	}
 }
 
@@ -1084,8 +1163,6 @@ cleanup:
 	return 1;
 }
 
-#warning TSILL
-#include <bsp/pci.h>
 
 rtems_task Init(
   rtems_task_argument ignored
@@ -1097,23 +1174,22 @@ rtems_task Init(
   int enforceBootp=0;
 
   char *cmd=0, *fn;
-  char *username, *tmp;
+  char *username, *tmp=0;
   int  useTftp,fd,errfd;
   extern struct in_addr rtems_bsdnet_bootp_server_address;
   extern char           *rtems_bsdnet_bootp_boot_file_name;
   Parm	p;
 
-#if 0
-  printk("TSILL entering netload Init");
-  { unsigned int l;
-  pci_read_config_dword(0,0,0,0xc8,&l);
-  printf(" error addr 0x%08x, last stat ",l);
-  }
-  _BSP_clear_hostbridge_errors(0/*enableMCP*/,0/*quiet*/);
-  _BSP_clear_hostbridge_errors(0/*enableMCP*/,0/*quiet*/);
-  printf("0x%08x\n",
-  _BSP_clear_hostbridge_errors(0/*enableMCP*/,0/*quiet*/));
-#endif
+  rl_initialize();
+
+  rl_bind_key(SPC_REBOOT,handle_spc);
+  rl_bind_key(SPC_CLEAR_UNDO, hack_undo);
+  /* readline (temporarily) modifies the argument to rl_parse_and_bind();
+   * mustn't be static/ro text
+   */
+  tmp=strdup("Control-r:revert-line");
+  rl_parse_and_bind(tmp);
+  free(tmp);
 
 	/* initialize 'flags'; all configuration variables
 	 * must be malloc()ed
@@ -1189,7 +1265,7 @@ rtems_task Init(
 								case 'd':	manual=0; enforceBootp=1;	break;
 								case 'm':	manual=0; enforceBootp=-1;	break;
 
-								case CTRL_C:
+								case CTRL_X:
 								case 'R':	rtemsReboot(); /* never get here */
 										break;
 								default: 	manual=-1;
