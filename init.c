@@ -4,8 +4,11 @@
  *  $Id$
  */
 
-#undef USE_CEXP
-#undef USE_SHELL
+#define RSH_CMD			"cat "					/* Command for loading the image using RSH */
+#define TFTP_PREFIX		"/TFTP/BOOTP_HOST/"		/* filename to prepend when accessing the image via TFTPfs (only if "/TFTP/" not already present) */
+#define CMDPARM_PREFIX	"bootfile="				/* if defined, 'bootfile=<image filename>' will be added to the kernel commandline */
+#define ABORT_WAIT_SECS	2						/* how many seconds to give the user for aborting a netboot */
+
 
 #include <bsp.h>
 #include <stdio.h>
@@ -16,13 +19,13 @@
 #include <fcntl.h>
 #include <rtems/rtems_bsdnet.h>
 #include <rtems/error.h>
-#ifdef USE_SHELL
-#include <rtems/shell.h>
-#endif
-#ifdef USE_CEXP
-#include <cexp.h>
-#endif
 
+#include <readline/readline.h>
+#include <readline/history.h>
+
+#include <termios.h>
+
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
@@ -61,6 +64,7 @@ static struct rtems_bsdnet_ifconfig lo_ifcfg = {
 	"127.0.0.1",
 	"255.0.0.0",
 };
+
 
 static struct rtems_bsdnet_ifconfig eth_ifcfg =
 {
@@ -267,6 +271,9 @@ register char *end=start+size;
 		__asm__ __volatile__("sync");
 }
 
+/* kernel commandline parameters */
+char *cmdline=0;
+
 static char *
 doLoad(long fd, long errfd)
 {
@@ -302,8 +309,14 @@ register unsigned long algn;
 #else
 	/* fire up a loaded image */
 	rtems_interrupt_disable(l);
-	__asm__ __volatile__("mr %%r5, %0; mr %%r6, %1; mr %%r7, %2;  mtlr %0; blr"
-						::"r"(buf),"r"(buf+ntot),"r"(algn):"r5","r6","r7");
+	{
+	char *cmdline_end=cmdline;
+	if (cmdline_end)
+		cmdline_end+=strlen(cmdline);
+	__asm__ __volatile__("mr %%r3, %0; mr %%r4, %1; mr %%r5, %2; mr %%r6, %3; mr %%r7, %4;  mtlr %2; blr"
+						::"r"(cmdline), "r"(cmdline_end), "r"(buf),"r"(buf+ntot),"r"(algn)
+						:"r3","r4","r5","r6","r7");
+	}
 #endif
 
 cleanup:
@@ -313,96 +326,200 @@ cleanup:
 	return 0;
 }
 
+
+static char *
+prompt(char *pr, char *proposal)
+{
+char *rval;
+	if (proposal) {
+		while (*proposal)
+			rl_stuff_char(*proposal++);
+	}
+	rval=readline(pr);
+	if (rval && *rval)
+		add_history(rval);
+	return rval;
+}
+
+static char *
+getIpAddr(char *what, char *old)
+{
+	struct in_addr inDummy;
+	static const char *fmt="Enter %s IP (dot.dot):";
+	char *p,*rval=0;
+
+	clear_history();
+	if (old && *old) add_history(old);
+
+	p=malloc(strlen(fmt)+strlen(what)+1);
+	sprintf(p,fmt,what);
+
+	do {
+		rval=prompt(p,old);
+		if (rval && !inet_aton(rval,&inDummy)) {
+				fprintf(stderr,"Invalid address, try again\n");
+				free(rval); rval=0;
+		}
+	} while (!rval);
+	free(p);
+
+	return rval;
+}
+
+static void
+help(void)
+{
+	printf("Press 'c' for manually entering your IP configuration\n");
+	printf("Press 'b' for manually entering filename/cmdline parameters only\n");
+	printf("Press 'a' for continuing the automatic netboot\n");
+	printf("Press any other key for this message\n");
+}
+
+static char *srvname=0;
+
+static int
+config(void)
+{
+char **p;
+p=&rtems_bsdnet_config.ifconfig->ip_address; *p=getIpAddr("my IP address",*p);
+p=&rtems_bsdnet_config.ifconfig->ip_netmask; *p=getIpAddr("my netmask",*p);
+p=&srvname;                                  *p=getIpAddr("server address",*p);
+p=&rtems_bsdnet_config.ifconfig->gateway;	 *p=getIpAddr("gateway address",*p);
+return -2;
+}
+
 rtems_task Init(
   rtems_task_argument ignored
 )
 {
 
   int tftpInited=0;
+  int manual=0;
 
-  rtems_bsdnet_initialize_network(); 
-#ifdef USE_CEXP
-  if (rtems_bsdnet_initialize_tftp_filesystem())
-	BSP_panic("TFTP FS initialization failed");
-  else
-	tftpInited=1;
-#endif
-#if 0
-  rtems_initialize_telnetd();
-  {
-  char ch;
-  rtems_rdbg_initialize();
-  printf("initialized RDBG, may I continue?"); fflush(stdout);
-  read(0,&ch,1);
-  printf("%c\n",ch);
-  }
+  char *cmd=0, *fn;
+  char *username,*filename=0;
+  int  useTftp,fd,errfd;
+  extern struct in_addr rtems_bsdnet_bootp_server_address;
+  extern char           *rtems_bsdnet_bootp_boot_file_name;
 
-  putenv("TERMCAP=/TFTP/BOOTP_HOST/termcap");
-  putenv("TERM=xterm"); /* xfree/xterm */
-#endif
-#ifndef USE_SHELL
-#ifndef USE_CEXP
-  {
-#define FNSZ	500
-	char srvname[50],*chpt;
-	char cmd[FNSZ+30],*fn;
-	char ubuf[20];
-	char *username;
-	int  i,ch,again,useTftp,fd,errfd;
-	extern struct in_addr rtems_bsdnet_bootp_server_address;
-	extern char           *rtems_bsdnet_bootp_boot_file_name;
 #define SADR rtems_bsdnet_bootp_server_address
 #define BOFN rtems_bsdnet_bootp_boot_file_name
-#define filename (cmd+4)
-#define TFTP_PREFIX "/TFTP/BOOTP_HOST/"
 
-	for (again=0;1;again=1) {
-		memset(cmd,0,sizeof(cmd));
-		strcpy(cmd,"cat ");
-		if (again  || !(BOFN)) {
-			if (!again)
-				fprintf(stderr,"Didn't get a filename from DHCP server\n");
-			fprintf(stderr,"Enter filename (maybe ~user to specify rsh user):");
-			for (i=0; i<FNSZ && (ch=getchar())>0 && '\n'!=ch; i++) {
-				filename[i]=(char)ch;
-			}
-			filename[i]=0;
+	/* give them a chance to abort the netboot */
+	{
+	struct termios ot,nt;
+	char ch;
+		/* establish timeout using termios */
+		if (tcgetattr(0,&ot)) {
+			perror("TCGETATTR");
 		} else {
-			strncpy(filename,BOFN,FNSZ);
+			nt=ot;
+			nt.c_lflag &= ~ICANON;
+			nt.c_cc[VMIN]=0;
+			/* 1s tics */
+			nt.c_cc[VTIME]=10;
+			if (tcsetattr(0,TCSANOW,&nt)) {
+				perror("TCSETATTR");
+			} else {
+				int secs;
+				fprintf(stderr,"\n\nType any character to abort netboot:xx");
+				for (secs=ABORT_WAIT_SECS; secs; secs--) {
+					fprintf(stderr,"\b\b%2i",secs);
+					if (read(0,&ch,1)) {
+						/* got a character; abort */
+						fputc('\n',stderr);
+						manual=1;
+						break;
+					}
+				}
+				if (manual) {
+					nt.c_cc[VMIN]=1;
+					nt.c_cc[VTIME]=0;
+					if (tcsetattr(0,TCSANOW,&nt)) {
+						perror("TCSETATTR");
+					} else {
+						do {
+							fputc('\n',stderr);
+							switch (ch) {
+								case 'c':	manual=config(); 	break;
+								case 'b':	manual=1;			break;
+								case 'a':	manual=0;			break;
+								default:	help();
+											manual=-1;
+											break;
+							}
+						} while (-1==manual && 1==read(0,&ch,1));
+					}
+				}
+				tcsetattr(0,TCSANOW,&ot);
+			}
+		}
+	}
+
+  	rtems_bsdnet_initialize_network(); 
+
+	if (2!=manual) {
+		/* 2 means we have a manual IP configuration */
+		if (BOFN)
+			filename=strdup(BOFN);
+		srvname = strdup("xxx.xxx.xxx.xxx.");
+		if (!inet_ntop(AF_INET,&SADR,srvname,strlen(srvname))) {
+			free(srvname);
+			srvname=0;
+		}
+	}
+	
+	for (;1;manual=1) {
+		if (manual>0  || !(BOFN)) {
+			char *old=0;
+			if (!manual)
+				fprintf(stderr,"Didn't get a filename from DHCP server\n");
+			old=filename;
+			clear_history();
+			if (old && *old) add_history(old);
+			filename=prompt("Enter filename (maybe ~user to specify rsh user):",old);
+			free(old);
 		}
 		fn=filename;
 
 		useTftp = fn && '~'!=*fn;
 
 		if (!useTftp) {
-			char *dst;
 
-			if (again || !inet_ntop(AF_INET,&SADR,srvname,sizeof(srvname))) {
-				if (!again)
-					fprintf(stderr,"Unable to convert server address to name\n");
-				fprintf(stderr,"Enter server IP (dot.not):");
-				for (i=0; i<sizeof(srvname)-1 && (ch=getchar())>0 &&
-					('.'==ch || ('0'<=ch && '9'>=ch)); i++)
-						srvname[i]=(char)ch;
-				srvname[i]=0;
-				fprintf(stderr,"\n");
+ 			/* they gave us user name */
+			username=++fn;
+			if ((fn=strchr(fn,'/'))) {
+				*(fn++)=0;
 			}
 
-			/* they gave us user name */
-			username=++fn;
-			if ((fn=strchr(fn,'/')))
-				*(fn++)=0;
-			strncpy(ubuf,username,sizeof(ubuf));
-			ubuf[sizeof(ubuf)-1]=0;
-			username=ubuf;
+			fprintf(stderr,"Loading as '%s' using RSH\n",username);
+
 			if (!fn || !*fn) {
 				fprintf(stderr,"No file; trying 'rtems'\n");
 				fn="rtems";
 			}
+
+			if (manual>0 || !srvname) {
+				char			*old=0;
+
+				if (!srvname)
+					fprintf(stderr,"Unable to convert server address to name\n");
+				else {
+					old=srvname;
+				}
+
+				srvname=getIpAddr("server address",old);
+				free(old);
+			}
+
 			/* cat filename to command */
-			for (dst=filename; (*dst++=*fn++););
-			chpt=srvname;
+			cmd=realloc(cmd,strlen(RSH_CMD)+strlen(fn)+1);
+			sprintf(cmd,"%s%s",RSH_CMD,fn);
+
+			{ char *chpt=srvname;
 			fd=rcmd(&chpt,RSH_PORT,username,username,cmd,&errfd);
+			}
+			free(cmd); cmd=0;
 			if (fd<0) {
 				fprintf(stderr,"rcmd (%s): got no remote stdout descriptor\n",
 								strerror(errno));
@@ -413,6 +530,11 @@ rtems_task Init(
 								strerror(errno));
 				continue;
 			}
+			/* reassemble the filename */
+			free(cmd);
+			cmd=filename;
+			filename=malloc(1+strlen(username)+1+strlen(fn)+1);
+			sprintf(filename,"~%s/%s",username,fn);
 		} else {
 #ifndef USE_CEXP
   			if (!tftpInited && rtems_bsdnet_initialize_tftp_filesystem())
@@ -421,46 +543,50 @@ rtems_task Init(
 				tftpInited=1;
 #endif
 			fprintf(stderr,"No user; using TFTP for download\n");
-			if (strlen(BOFN) + 50>sizeof(cmd))
-					BSP_panic("Filename Buffer Overflow");
+			fn=filename;
 			if (strncmp(filename,"/TFTP/",6)) {
-				memmove(filename+strlen(TFTP_PREFIX),filename,strlen(filename)+1);
-				memcpy(filename,TFTP_PREFIX,strlen(TFTP_PREFIX));
+				fn=cmd=realloc(cmd,strlen(TFTP_PREFIX)+strlen(filename)+1);
+				sprintf(cmd,"%s%s",TFTP_PREFIX,filename);
 			}
-			if ((fd=open(filename,O_RDONLY,0))<0) {
-					fprintf(stderr,"unable to open %s\n",filename);
+			if ((fd=open(fn,O_RDONLY,0))<0) {
+					fprintf(stderr,"unable to open %s\n",fn);
 					continue;
 			}
 			errfd=-1;
 		}
-#if 1
+		/* assemble command line */
+		if (manual>0) {
+			char *old=cmdline;
+			clear_history();
+			if (old && *old) {
+				add_history(old);
+			}
+			do {
+				cmdline=prompt("Command Line Parameters:",old);
+				if (cmdline && strstr(cmdline,CMDPARM_PREFIX)) {
+					fprintf(stderr,"must not contain '%s'\n",CMDPARM_PREFIX);
+					free(cmdline); cmdline=0;
+				}
+			} while (!cmdline);
+			free(old);
+		} /* else cmdline==0 [init] */
+		{
+		int len=cmdline ? strlen(cmdline) : 0;
+		if (len && cmdline[len-1]!=' ') {
+			/* add space for a separating ' ' */
+			len++;
+		}
+		cmdline=realloc(cmdline, len + strlen(CMDPARM_PREFIX) + strlen(filename) + 1);
+		cmdline[len]=0;
+		if (len)
+			cmdline[len-1]=' ';
+		strcat(cmdline,CMDPARM_PREFIX);
+		strcat(cmdline,filename);
+		}
 		fprintf(stderr,"Hello, this is the RTEMS remote loader; trying to load '%s'\n",
 						filename);
 		doLoad(fd,errfd);
-#else
-		fprintf(stderr,"Server: '%s'\n",srvname);
-		fprintf(stderr,"user:   '%s'\n",username);
-		fprintf(stderr,"cmd:    '%s'\n",cmd);
-#endif
 	}
-  }
-#else
-  do {
-	static int argc=2;
-	static char *argv[]={"cexp","/TFTP/BOOTP_HOST/svimg.syms",0};
-	char *buf=0;
-	cexp_main(argc,argv);
-	free(buf);
-	argc=1; /* prevent from re-loading the symtab */
-  } while (1);
-#endif
-#else
-  shell_add_cmd("rsh",		"rsh",    "rsh <args>  # rsh test app",
-		rsh_main);
-
-  sleep(1);
-  shell_init("shel",100000,10,"/dev/console",B9600|CS8,0);
-#endif
   rtems_task_delete(RTEMS_SELF);
 
   exit( 0 );
