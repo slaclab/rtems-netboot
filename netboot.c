@@ -988,20 +988,23 @@ rtems_task Init(
   	rtems_bsdnet_initialize_network(); 
 
 	if (enforceBootp >= 0) {
-		/* use filename/server supplied by bootp */
-		if (BOFN) {
-			free(filename);
-			filename=strdup(BOFN);
+		/* use filename, script and server supplied by bootp */
+
+		/* 'p' --> skip filename/bootparams */
+		if ( 2 != enforceBootp ) {
+			if (BOFN) {
+				free(filename);
+				filename=strdup(BOFN);
+			}
+			free(bootparms);
+			bootparms = BCMD && *BCMD ? strdup(BCMD) : 0;
 		}
-		free(bootparms);
-		bootparms = BCMD && *BCMD ? strdup(BCMD) : 0;
 
 		srvname = strdup("xxx.xxx.xxx.xxx.");
 		if (!inet_ntop(AF_INET,&SADR,srvname,strlen(srvname))) {
 			free(srvname);
 			srvname=0;
 		}
-
 	}
 
 	/* rebuild path_prefix */
