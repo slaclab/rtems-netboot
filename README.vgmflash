@@ -5,7 +5,7 @@ Till Straumann <strauman@slac.stanford.edu>, 3/2002
 Using the VGM remote boot loader
 --------------------------------
 
-The VGM remote boot loader itself is an RTEMS
+The VGM remote boot loader is itself an RTEMS
 application intended to download other RTEMS applications.
 
 RATIONALE: 
@@ -27,7 +27,7 @@ When started, the loader tries to get the
   - log server address
   - boot file name
 either using the DHCP protocol or from NVRAM (which option
-to chose is also NVRAM configurable).
+to use by default is also NVRAM configurable).
 
 It then tries to download the 'boot file' from the
 'server' using either the 'rsh' or the 'tftp' protocol.
@@ -62,7 +62,7 @@ Manual ServerIP / Filename configuration
 - - - - - - - - - - - - - - - - - - - - -
 If no filename / server are supplied or if the
 download fails, the respective parameters may
-be entered manually on the console. They are
+be entered manually at the console. They are
 interpreted exactly the same way as described
 above.
 
@@ -71,7 +71,7 @@ Manual Configuration
 The loader now also supports using manually configured
 IP addresses etc. which it stores in NVRAM. A programmable
 flag (also a NVRAM configuration setting) determines whether
-to use the manual/NVRAM configuration or whether to obtain
+to use the manual/NVRAM configuration or to obtain
 a configuration via DHCP.
 
 NOTE: The loader maintains its own IP configuration in NVRAM
@@ -118,15 +118,17 @@ RTEMS loader to any other bank:
 We want to erase (and later write the RTEMS loader)
 to the second bank of the user flash (id 2),
 hence we start with erasing blocks 4..7
-(using the blocksize info of 0x20000==128k) of the user flash:
+(using the blocksize info of 0x20000==128k and the
+fact that the window/bank size is 500k = 4 blocks)
+of the user flash:
 
     SMon0> flashWrEn 0			/* enable writing user flash */
-	SMon0> flashEraseBlock 4 2
-	SMon0> flashEraseBlock 5 2
-	SMon0> flashEraseBlock 6 2
+	SMon0> flashEraseBlock 4 2	/* erase 4th block of user flash */
+	SMon0> flashEraseBlock 5 2  /* erase 5th block of user flash */
+	SMon0> flashEraseBlock 6 2  /* ... */
 	SMon0> flashEraseBlock 7 2
 
-Now, we download the binary image of the loader:
+Now, we download the binary image of the loader into RAM:
 
 	SMon0> load "rtemsloader.img"
 	Received 376944 bytes in 6.0 seconds.
@@ -145,7 +147,10 @@ flash device, not only the destination area!
 The 0x80000 'offset' parameter directs SMON to
 write the image to the second 512k bank of user flash (id 2)
 
-	SMon0> flashWrite 0x80000 0x10000 0x5c070 2
+	SMon0> flashWrite 0x80000 r5 r6-r5 2
+
+(NOTE: the registers r5, r6 must not have been tampered with
+since completion of the 'load' command)
 
 STARTING THE RTEMS LOADER
 -------------------------
@@ -166,7 +171,7 @@ STARTING THE RTEMS LOADER
 	SMon0> r5=0; r6=0; r3=0; r4=0
 	 value = 0
 
-3) Make sure the network if's DMA is stopped
+3) Make sure the network if's DMA is stopped (THIS IS IMPORTANT)
 
    SMon0> netStop
 
@@ -178,3 +183,21 @@ NOTE: these instructions may be written to a script, e.g. called
     "rtems" which in turn may be called from the startup script
     (execEB "rtems") [use indirection to simply switch between
     different scripts]. See the "smonscript.st" file for details.
+
+SMON can also load a script remotely:
+
+SMon0> loadEB "smonscript.st" "rtems"
+Received 557 bytes in 0.0 seconds.
+New buffer "rtems" @ 0xFFE80410
+
+In the actual startup script (called "startup")
+I only put one line, vectoring to the "rtems" script:
+
+execEB "rtems"
+
+this allows for easy switching boot scripts.
+
+
+Note that you might have to remove some of the comments
+in the example script because it exceeds the SMON script
+line limits.
