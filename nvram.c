@@ -1317,7 +1317,7 @@ NetConfigCtxtRec ctx;
 
 #include <cexpHelp.h>
 
-CEXP_HELP_TAB_BEGIN
+CEXP_HELP_TAB_BEGIN(svgm_nvram)
 	HELP(
 "Interactively change the NVRAM boot configuration",
 		void, nvramConfig, (void)
