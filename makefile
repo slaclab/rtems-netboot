@@ -1,7 +1,3 @@
-PROGELF=o-optimize/netload
-TMPNAM=tmp
-MAKEFILE=makefile
-
 # REAL VALUES (for use in flash)
 FLASHSTART=0xfff80000
 DEST=0
@@ -52,7 +48,11 @@ DEST=0
 # -----------------------------------------
 # 
 
-
+PROGELF=o-optimize/netload
+# must still terminate in ".bin"
+IMGEXT=flashimg.bin
+TMPNAM=tmp
+MAKEFILE=makefile
 
 CC=$(CROSS_COMPILE)gcc
 LD=$(CROSS_COMPILE)ld
@@ -69,7 +69,7 @@ LINKSCRIPT=gunzip.lds
 # "--just-symbols" files must be loaded _before_ the binary images
 LINKARGS=$(LINKOBJS) --just-symbols=$(PROGELF) --defsym DEST=$(DEST) --defsym FLASHSTART=$(FLASHSTART) -b binary  $(LINKBINS) -T$(LINKSCRIPT)
 
-all:	$(PROGELF).bin
+all:	$(PROGELF).$(IMGEXT)
 
 $(TMPIMG):	$(PROGELF)
 	$(OBJCOPY) -Obinary $^ $@
@@ -84,10 +84,10 @@ $(TMPIMG).gz: $(TMPIMG)
 gunzip.o: gunzip.c $(MAKEFILE)
 	$(CC) -c $(CFLAGS) -DDEST=$(DEST) -o $@ $<
 
-$(PROGELF).bin:	$(LINKOBJS) $(LINKBINS) $(LINKSCRIPT) $(MAKEFILE)
+$(PROGELF).$(IMGEXT):	$(LINKOBJS) $(LINKBINS) $(LINKSCRIPT) $(MAKEFILE)
 	$(RM) $@
 	$(LD) -o $@ $(LINKARGS) -Map map --oformat=binary
-#	$(LD) -o $(@:%.bin=%.exe) $(LINKARGS)
+#	$(LD) -o $(@:%.bin=%.elf) $(LINKARGS)
 	$(RM) $(LINKBINS)
 
 clean:
