@@ -74,7 +74,7 @@ all:	$(PROGELF).bin
 $(TMPIMG):	$(PROGELF)
 	$(OBJCOPY) -Obinary $^ $@
 
-$(PROGELF):
+$(PROGELF)::
 	$(MAKE) -f Makefile.rtems 
 
 $(TMPIMG).gz: $(TMPIMG)
@@ -82,7 +82,7 @@ $(TMPIMG).gz: $(TMPIMG)
 	gzip -c9 $^ > $@
 
 gunzip.o: gunzip.c $(MAKEFILE)
-	$(CC) -c $(CFLAGS) -DDEST=$(DEST) -o $@ $^
+	$(CC) -c $(CFLAGS) -DDEST=$(DEST) -o $@ $<
 
 $(PROGELF).bin:	$(LINKOBJS) $(LINKBINS) $(LINKSCRIPT) $(MAKEFILE)
 	$(RM) $@
