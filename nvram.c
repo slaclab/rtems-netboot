@@ -141,7 +141,7 @@ static char *strbuf[NUM_PARMS] = {0};
 static int getString(GET_PROC_ARG_PROTO);
 static int getCmdline(GET_PROC_ARG_PROTO);
 static int getIpAddr(GET_PROC_ARG_PROTO);
-static int getYesNo(GET_PROC_ARG_PROTO);
+static int getUseBootp(GET_PROC_ARG_PROTO);
 static int getNum(GET_PROC_ARG_PROTO);
 
 #define FILENAME_IDX 0
@@ -298,8 +298,9 @@ static ParmRec parmList[NUM_PARMS+1]={
 #else
 			strbuf + 15,
 #endif
-			"Use DHCP:                           [Y/N] >",
-			getYesNo,		FLAG_DUP | FLAG_BOOTP,
+			"Use DHCP: Yes, No or Partial (--> file and\n"
+            "          command line from NVRAM) [Y/N/P]>",
+			getUseBootp,	FLAG_DUP | FLAG_BOOTP,
 	},
 	{ "BP_DELY=",
 #ifdef __INSIDE_NETBOOT__
@@ -581,7 +582,7 @@ int		result=0;
 }
 
 static int
-getYesNo(NetConfigCtxt c, char *what, char **pval, int mandatory)
+getUseBootp(NetConfigCtxt c, char *what, char **pval, int mandatory)
 {
 char *nval=0,*chpt;
 int  result=0;
@@ -596,6 +597,8 @@ int  result=0;
 				case 'y':
 				case 'N':
 				case 'n':
+				case 'p':
+				case 'P':
 						for (chpt=nval; *chpt; chpt++)
 							*chpt=toupper(*chpt);
 						if (!*(nval+1))

@@ -460,6 +460,7 @@ help(void)
 	printf("Press 'b' for manually entering filename/cmdline parameters only\n");
 	printf("Press '@' for continuing the netboot (DHCP flag from NVRAM)\n");
 	printf("Press 'd' for continuing the netboot; enforce using DHCP\n");
+	printf("Press 'p' for continuing the netboot; enforce using DHCP but use file and cmdline from NVRAM\n");
 	printf("Press 'm' for continuing the netboot; enforce using NVRAM config\n");
 #ifdef SPC_REBOOT
 	printf("Press 'R' to reboot now (you can always hit <Ctrl>-%c to reboot)\n",SPC2CHR(SPC_REBOOT));
@@ -573,6 +574,7 @@ rtems_task Init(
 									break;
 								case 'b':	manual=1;					break;
 								case '@':	manual=0;					break;
+								case 'p':	manual=0; enforceBootp=2;	break;
 								case 'd':	manual=0; enforceBootp=1;	break;
 								case 'm':	manual=0; enforceBootp=-1;	break;
 
@@ -601,10 +603,15 @@ rtems_task Init(
 
 	{
 			/* check if they want us to use bootp or not */
-			if (!enforceBootp)
-				enforceBootp = ((*use_bootp && 'N' == toupper(*use_bootp)) ? -1 : 1); 
-			else
-				sprintf(use_bootp, enforceBootp>0 ? "Y" : "N");
+			if (!enforceBootp) {
+				switch ( toupper(*use_bootp) ) {
+					default:  enforceBootp = 1;  break;
+					case 'N': enforceBootp = -1; break;
+					case 'P': enforceBootp = 2;  break;
+				}
+			} else {
+				sprintf(use_bootp, enforceBootp>0 ? (enforceBootp>1 ? "P" : "Y") : "N");
+			}
 			if (enforceBootp<0) {
 				rtems_bsdnet_config.bootp = 0;
 				if (!manual) manual = -2;
@@ -629,7 +636,7 @@ rtems_task Init(
 
   	rtems_bsdnet_initialize_network(); 
 
-	if (enforceBootp >= 0) {
+	if (enforceBootp >= 0 && enforceBootp < 2) {
 		/* use filename/server supplied by bootp */
 		if (BOFN) {
 			free(filename);
@@ -784,8 +791,11 @@ rtems_task Init(
 				if ( p->flags&FLAG_NOUSE			||
 					 !v								||
 					 ( rtems_bsdnet_config.bootp && 
-						(p->flags & FLAG_BOOTP)  &&					/* should obtain this by bootp */
-						! (manual && (p->flags & FLAG_BOOTP_MAN))	/* AND it's not manually overridden */
+						(p->flags & FLAG_BOOTP)  &&						/* should obtain this by bootp               */
+						! ((p->flags & FLAG_BOOTP_MAN) && (manual ||	/* AND it's not overridden manually          */
+                                                      (2==enforceBootp) /*     nor by the enforceBootp value '2'     */
+                                                          )             /*     which says we should use NVRAM values */
+                          )
 					 )
 					)
 					continue;
