@@ -3,8 +3,8 @@ FLASHSTART=0xfff80000
 DEST=0
 
 # DEBUGGING VALUES (make clean; make when changing these)
-# FLASHSTART=0x100000
-# DEST=0x10000
+#FLASHSTART=0x400000
+#DEST=0x10000
 
 # Use a destination address > 0, e.g. 0x10000
 # for debugging. In this case, the image will
@@ -27,12 +27,12 @@ DEST=0
 #  (see below)
 #
 # Good values for debugging are:
-# FLASHADDR=0x100000
+# FLASHADDR=0x400000
 # DEST     =0x010000
 #
-# Smon0>  load "netload.gzimage" 0x100000
+# Smon0>  load "netload.gzimage" 0x400000
 # Received 248900 bytes in 0.7 seconds.
-# loaded netload.gzimage at 100000
+# loaded netload.gzimage at 400000
 # Smon0>  g r5
 # data copied
 # bss cleared
