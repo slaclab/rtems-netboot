@@ -214,12 +214,13 @@ struct rtems_bsdnet_config rtems_bsdnet_config = {
 #define FLAG_NOUSE	2	/* dont put into the commandline at all */
 #define FLAG_CLRBP  4	/* field needs to be cleared for bootp  */
 
+typedef int (*GetProc)(char *prompt, char **proposal, int mandatory);
 
 typedef struct ParmRec_ {
 	char	*name;
 	char	**pval;
 	char	*prompt;
-	int 	(*getProc)(char *prompt, char **proposal, int mandatory);
+	GetProc	getProc;
 	int		flags;
 } ParmRec, *Parm;
 
@@ -641,9 +642,6 @@ int		result=0;
 	static const char *fmt="Enter %s(dot.dot):";
 	int l,pad=0;
 
-	clear_history();
-	if (*pval && **pval) add_history(*pval);
-
 	l=strlen(fmt)+strlen(what);
 	if (l<pad) {
 		pad=35-l;
@@ -697,9 +695,6 @@ getYesNo(char *what, char **pval, int mandatory)
 char *nval=0,*chpt;
 int  result=0;
 
-	clear_history();
-	if (*pval && **pval) add_history(*pval);
-
 	do {
 		if (mandatory<0) mandatory=0; /* retry flag */
 		/* Do they want something special ? */
@@ -740,8 +735,7 @@ getNum(char *what, char **pval, int mandatory)
 {
 char *nval=0;
 int  result=0;
-	clear_history();
-	if (*pval && **pval) add_history(*pval);
+
 	do {
 		if (mandatory<0) mandatory=0; /* retry flag */
 		/* Do they want something special ? */
@@ -769,8 +763,7 @@ getString(char *what, char **pval, int mandatory)
 {
 char *nval=0;
 int  result=0;
-	clear_history();
-	if (*pval && **pval) add_history(*pval);
+
 	do {
 		/* Do they want something special ? */
 		result=prompt(what,*pval,&nval);
@@ -787,6 +780,7 @@ getCmdline(char *what, char **pval, int mandatory)
 {
 char *old=0;
 int  retry = 1, result=0;
+
 	while (retry-- && !result) {
 		old = strdup(*pval);
 		/* old value is released by getString */
@@ -815,6 +809,18 @@ int  retry = 1, result=0;
 	}
 	if (old) free(old);
 	return result;
+}
+
+/* clear the history and call a get proc */
+static int
+callGet(GetProc p, char *prompt, char **ppval, int mandatory, int repeat)
+{
+int rval;
+	clear_history();
+	do {
+		if (*ppval && **ppval) add_history(*ppval);
+	} while ((rval=p(prompt,ppval,mandatory)) && repeat);
+	return rval;
 }
 
 static void
@@ -876,9 +882,11 @@ else if	(howmany > sizeof(parmList)/sizeof(parmList[0]) - 1)
 	howmany = sizeof(parmList)/sizeof(parmList[0]) - 1;
 
 while ( i>=0 && i<howmany ) {
-	switch (parmList[i].getProc(parmList[i].prompt,
-								parmList[i].pval,
-								parmList[i].flags&FLAG_MAND)) {
+	switch (callGet(parmList[i].getProc,
+					parmList[i].prompt,
+					parmList[i].pval,
+					parmList[i].flags&FLAG_MAND,
+					0 /* dont repeat */)) {
 
 		case SPC_ESC:
 			fprintf(stderr,"Restoring previous configuration\n");
@@ -908,9 +916,11 @@ for (p=parmList; p->name; p++) {
 	if ( (p->flags&FLAG_MAND) && !*p->pval ) {
 		do {
 			fprintf(stderr,"Need parameter...\n");
-			p->getProc(p->prompt,
-								p->pval,
-								FLAG_MAND);
+			callGet(p->getProc,
+					p->prompt,
+					p->pval,
+					FLAG_MAND,
+					0);
 		} while (!*p->pval);
 	}
 }
@@ -1074,6 +1084,8 @@ cleanup:
 	return 1;
 }
 
+#warning TSILL
+#include <bsp/pci.h>
 
 rtems_task Init(
   rtems_task_argument ignored
@@ -1085,11 +1097,23 @@ rtems_task Init(
   int enforceBootp=0;
 
   char *cmd=0, *fn;
-  char *username;
+  char *username, *tmp;
   int  useTftp,fd,errfd;
   extern struct in_addr rtems_bsdnet_bootp_server_address;
   extern char           *rtems_bsdnet_bootp_boot_file_name;
   Parm	p;
+
+#if 0
+  printk("TSILL entering netload Init");
+  { unsigned int l;
+  pci_read_config_dword(0,0,0,0xc8,&l);
+  printf(" error addr 0x%08x, last stat ",l);
+  }
+  _BSP_clear_hostbridge_errors(0/*enableMCP*/,0/*quiet*/);
+  _BSP_clear_hostbridge_errors(0/*enableMCP*/,0/*quiet*/);
+  printf("0x%08x\n",
+  _BSP_clear_hostbridge_errors(0/*enableMCP*/,0/*quiet*/));
+#endif
 
 	/* initialize 'flags'; all configuration variables
 	 * must be malloc()ed
@@ -1242,8 +1266,8 @@ rtems_task Init(
 
   	rtems_bsdnet_initialize_network(); 
 
-	if (manual>=0) {
-		/* -2 means we have a manual IP configuration */
+	if (enforceBootp >= 0) {
+		/* use filename/server supplied by bootp */
 		if (BOFN) {
 			free(filename);
 			filename=strdup(BOFN);
@@ -1259,7 +1283,11 @@ rtems_task Init(
 		if (manual>0  || !filename) {
 			if (!manual)
 				fprintf(stderr,"Didn't get a filename from DHCP server\n");
-			while (getString("Enter filename (maybe ~user to specify rsh user):", &filename, FLAG_MAND));
+			callGet(getString,
+					"Enter filename (maybe ~user to specify rsh user):",
+					&filename,
+					FLAG_MAND,
+					1 /* loop until valid answer */);
 		}
 		fn=filename;
 
@@ -1285,7 +1313,7 @@ rtems_task Init(
 				if (!srvname)
 					fprintf(stderr,"Unable to convert server address to name\n");
 
-				while (getIpAddr("Server address: ",&srvname,FLAG_MAND));
+				callGet(getIpAddr,"Server address: ",&srvname,FLAG_MAND,1/*loop until valid*/);
 			}
 
 			/* cat filename to command */
@@ -1324,6 +1352,14 @@ rtems_task Init(
 			if (strncmp(filename,"/TFTP/",6)) {
 				fn=cmd=realloc(cmd,strlen(tftp_prefix)+strlen(filename)+1);
 				sprintf(cmd,"%s%s",tftp_prefix,filename);
+			} else {
+				/* may be necessary to rebuild the server name */
+				if ((tmp=strchr(filename+6,'/'))) {
+					*tmp=0;
+					free(srvname);
+					srvname=strdup(filename+6);
+					*tmp='/';
+				}
 			}
 			if ((fd=open(fn,O_RDONLY,0))<0) {
 					fprintf(stderr,"unable to open %s\n",fn);
@@ -1332,7 +1368,7 @@ rtems_task Init(
 			errfd=-1;
 		}
 		if (manual>0) {
-			getCmdline("Command line parameters:",&bootparms,0);
+			callGet(getCmdline,"Command line parameters:",&bootparms,0,0);
 		} /* else cmdline==0 [init] */
 
 		/* assemble command line */

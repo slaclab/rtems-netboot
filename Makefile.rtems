@@ -45,7 +45,7 @@ include $(RTEMS_ROOT)/make/leaf.cfg
 DEFINES  +=
 # -DUSE_SHELL
 CPPFLAGS +=
-CFLAGS   += -I/usr/local/rtems/powerpc-rtems/include $(DEBUG)
+CFLAGS   += -I/usr/local/rtems/powerpc-rtems/include $(DEBUG) -O
 
 #
 # CFLAGS_DEBUG_V are used when the `make debug' target is built.
@@ -76,5 +76,5 @@ ${ARCH}/netload: ${OBJS} ${LINK_FILES}
 
 # Install the program(s), appending _g or _p as appropriate.
 # for include files, just use $(INSTALL_CHANGE)
-install:  all
-	$(INSTALL_VARIANT) -m 555 ${PGMS} ${PROJECT_RELEASE}/bin
+#install:  all
+#	$(INSTALL_VARIANT) -m 555 ${PGMS} ${PROJECT_RELEASE}/bin
