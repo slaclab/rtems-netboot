@@ -1218,4 +1218,27 @@ NetConfigCtxtRec ctx;
 	return 0;
 }
 
+#include <cexpHelp.h>
+
+CEXP_HELP_TAB_BEGIN
+	HELP(
+"Interactively change the NVRAM boot configuration",
+		void, nvramConfig, (void)
+		),
+	HELP(
+"Show the NVRAM boot configuration; note that the currently active\n"
+"configuration may be different because the user may override the NVRAM\n"
+"settings at the boot prompt. To see the active configuration, use\n"
+"'bootConfigShow()'.\n",
+		void, nvramConfigShow, (void)
+		),
+	HELP(
+"Show the currently active boot configuration; note that the NVRAM\n"
+"configuration may be different because the user may override the NVRAM\n"
+"settings at the boot prompt. To see the NVRAM configuration, use\n"
+"'nvramConfigShow()'.\n",
+		void, bootConfigShow, (void)
+		),
+CEXP_HELP_TAB_END
+
 #endif
