@@ -1,10 +1,12 @@
 $Id$
 
+Till Straumann <strauman@slac.stanford.edu>, 3/2002
+
 Using the VGM remote boot loader
 --------------------------------
 
 The VGM remote boot loader itself is an RTEMS
-application intended to download other RTEMS applicatins.
+application intended to download other RTEMS applications.
 
 RATIONALE: 
   - the VGM SMON firmware doesn't support BOOTP/DHCP,
@@ -24,7 +26,8 @@ When started, the loader tries to get the
   - VGM hostname
   - log server address
   - boot file name
-using the DHCP protocol.
+either using the DHCP protocol or from NVRAM (which option
+to chose is also NVRAM configurable).
 
 It then tries to download the 'boot file' from the
 'server' using either the 'rsh' or the 'tftp' protocol.
@@ -53,7 +56,7 @@ the loader to connect to the server whose address
 was obtained using DHCP. Alternatively, a 'dot'
 notation IP address may denote the TFTP server:
 
-	'/TFTP/134.79.35.35/imagefile'
+	'/TFTP/999.99.99.99/imagefile'
 
 Manual ServerIP / Filename configuration
 - - - - - - - - - - - - - - - - - - - - -
@@ -62,6 +65,17 @@ download fails, the respective parameters may
 be entered manually on the console. They are
 interpreted exactly the same way as described
 above.
+
+Manual Configuration
+- - - - - - - - - - -
+The loader now also supports using manually configured
+IP addresses etc. which it stores in NVRAM. A programmable
+flag (also a NVRAM configuration setting) determines whether
+to use the manual/NVRAM configuration or whether to obtain
+a configuration via DHCP.
+
+NOTE: The loader maintains its own IP configuration in NVRAM
+(manual option) which is independent from the SMON 'config'.
 
 BURNING THE VGM FLASH
 ---------------------
@@ -104,7 +118,7 @@ RTEMS loader to any other bank:
 We want to erase (and later write the RTEMS loader)
 to the second bank of the user flash (id 2),
 hence we start with erasing blocks 4..7
-(using the blocksize info of 0x20000) of the user flash:
+(using the blocksize info of 0x20000==128k) of the user flash:
 
     SMon0> flashWrEn 0			/* enable writing user flash */
 	SMon0> flashEraseBlock 4 2
@@ -112,15 +126,15 @@ hence we start with erasing blocks 4..7
 	SMon0> flashEraseBlock 6 2
 	SMon0> flashEraseBlock 7 2
 
-Now, we download the binary image of the loader
-itself:
+Now, we download the binary image of the loader:
 
 	SMon0> load "rtemsloader.img"
 	Received 376944 bytes in 6.0 seconds.
 	loaded img at 10000                                                                                                              
 	SMon0>
 
-get the image size:
+get the image size (the 'load' command puts the target
+start- and ending addresses into r5 and r6, respectively):
 
 	SMon0> r6-r5
 	 value = 0x5C070 = 376944
@@ -146,7 +160,10 @@ STARTING THE RTEMS LOADER
 2) Clear r5 and r6. This instructs the loader to automatically
    calculate its own start address and length.
 
-	SMon0> r5=0; r6=0
+   Clear r3 and r4 also. (r3 and r4 hold the start and ending
+   addresses of an optional command line string.)
+
+	SMon0> r5=0; r6=0; r3=0; r4=0
 	 value = 0
 
 3) Make sure the network if's DMA is stopped
@@ -155,9 +172,9 @@ STARTING THE RTEMS LOADER
 
 3) fire off
 
-	SMon0> g
+	SMon0> g 0xfff80000
 
 NOTE: these instructions may be written to a script, e.g. called
     "rtems" which in turn may be called from the startup script
     (execEB "rtems") [use indirection to simply switch between
-    different scripts]
+    different scripts]. See the "smonscript.st" file for details.
