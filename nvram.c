@@ -721,7 +721,7 @@ Parm p = &c->parmList[idx];
 #ifdef USE_READLINE
 		if (*ppval && **ppval) add_history(*ppval);
 #endif
-	} while ((rval=p->getProc(c,p->prompt,p->pval,0)) && repeat);
+	} while ((rval=p->getProc(c,p->prompt,p->pval, repeat)) && repeat);
 	return rval;
 }
 
