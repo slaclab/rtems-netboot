@@ -14,7 +14,20 @@
 #define  HACKDISC 5
 
 
-static int ctrlChar = CTRL_X;
+static int rebootChar = CTRL_X;
+
+static int specialChars[10] = {0};
+static int numSpecialChars  =  -1; /* can't add chars prior to installing hack */
+
+static int lastSpecialChar = -1;
+
+int
+getConsoleSpecialChar(void)
+{
+int rval = lastSpecialChar;
+	lastSpecialChar = -1;
+	return rval;
+}
 
 /* ugly hack to get an rtems_termios_tty handle */
 /* hack into termios - THIS ROUTINE RUNS IN INTERRUPT CONTEXT */
@@ -23,12 +36,24 @@ void incharIntercept(struct termios *t, void *arg)
 {
 /* Note that struct termios is not struct rtems_termios_tty */ 
 struct rtems_termios_tty *tty = (struct rtems_termios_tty*)arg;
+char                     ch   = tty->rawInBuf.theBuf[tty->rawInBuf.Tail];
+int                      i;
 	/* did they just press Ctrl-C? */
-	if (ctrlChar == tty->rawInBuf.theBuf[tty->rawInBuf.Tail]) {
+	if (rebootChar == tty->rawInBuf.theBuf[tty->rawInBuf.Tail]) {
 			/* OK, we shouldn't call anything from IRQ context,
 			 * but for reboot - who cares...
 			 */
 			rtemsReboot();
+	}
+
+	if (lastSpecialChar >= 0)
+		return;
+
+	for (i = 0; i<numSpecialChars; i++) {
+		if (ch == specialChars[i]) {
+			lastSpecialChar = ch;
+			return;
+		}
 	}
 }
 
@@ -48,11 +73,22 @@ openToGetHandle(struct rtems_termios_tty *tp)
 static struct linesw dummy_ldisc = { openToGetHandle,0,0,0,0,0,0,0 };
 
 int
+addConsoleSpecialChar(int ch)
+{
+	if (numSpecialChars >=0 &&
+		numSpecialChars < sizeof(specialChars)/sizeof(specialChars[0])) {
+		specialChars[numSpecialChars++] = ch;
+		return 0;
+	} 
+	return -1;
+}
+
+int
 installConsoleCtrlXHack(int magicChar)
 {
 int	d=HACKDISC,o;
 	if (magicChar)
-		ctrlChar=magicChar;
+		rebootChar=magicChar;
 	/* now install our 'Ctrl-C' hack, so they can abort anytime while
 	 * network lookup and/or loading is going on...
 	 */
@@ -75,5 +111,6 @@ int	d=HACKDISC,o;
 
 	/* finally install our handler */
 	assert(0==ioctl(0,RTEMS_IO_RCVWAKEUP,&ctrlCIntercept));
+	numSpecialChars = 0;
 	return 0;
 }

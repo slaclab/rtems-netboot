@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <assert.h>
+#include <ctype.h>
 
 #include <rtems.h>
 #include <rtems/error.h>
@@ -64,8 +65,12 @@
 
 #define SPC2CHR(spc) ((spc)+'a'-1) 
 
+#ifdef USE_READLINE
 #include <readline/readline.h>
 #include <readline/history.h>
+#else
+#include <libtecla.h>
+#endif
 
 #include <termios.h>
 
@@ -117,7 +122,7 @@ static struct rtems_bsdnet_ifconfig eth_ifcfg =
         int             (*attach)(struct rtems_bsdnet_ifconfig *conf);
          */
 	/* try use macros here */
-	"es0",
+	RTEMS_BSP_NETWORK_DRIVER_NAME,
 	RTEMS_BSP_NETWORK_DRIVER_ATTACH,
 
         /*
@@ -235,6 +240,10 @@ readNVRAM(Parm parmList);
 
 static void
 writeNVRAM(Parm parmList);
+
+#ifndef USE_READLINE
+static GetLine *mygl = 0;
+#endif
 
 /* NOTE: rtems_bsdnet_ifconfig(,SIOCSIFFLAGS,) does only set, but not
  *       clear bits in the flags !!
@@ -559,6 +568,9 @@ cleanup:
 	return 0;
 }
 
+#ifndef USE_READLINE
+static int useHotkeys = 0;
+#else
 /* handle special characters; i.e. insert
  * them at the beginning of the current line
  * and accept the line.
@@ -568,12 +580,12 @@ static int
 handle_spc(int count, int k)
 {
 char t[2];
-	t[0]=k; t[1]=0;
-	if (SPC_REBOOT == k)
-		rtemsReboot();
-	rl_beg_of_line(0,k);
-	rl_insert_text(t);
-	return rl_newline(1,k);
+  t[0]=k; t[1]=0;
+  if (SPC_REBOOT == k)
+      rtemsReboot();
+  rl_beg_of_line(0,k);
+  rl_insert_text(t);
+  return rl_newline(1,k);
 }
 
 static int
@@ -582,23 +594,33 @@ hack_undo(int count, int k)
   rl_free_undo_list();
   return 0;
 }
+#endif
 
 static void
 installHotkeys(void)
 {
+#ifdef USE_READLINE
   rl_bind_key(SPC_UP,handle_spc);
   rl_bind_key(SPC_STOP,handle_spc);
   rl_bind_key(SPC_ESC,handle_spc);
+#else
+  useHotkeys = 1;
+  /* clear buffer */
+  getConsoleSpecialChar();
+#endif
 }
 
 static void
 uninstallHotkeys(void)
 {
+#ifdef USE_READLINE
   rl_unbind_key(SPC_UP);
   rl_unbind_key(SPC_STOP);
   rl_unbind_key(SPC_ESC);
+#else
+  useHotkeys = 0;
+#endif
 }
-
 
 /* The callers of this routine rely on not
  * getting an empty string.
@@ -606,24 +628,48 @@ uninstallHotkeys(void)
  * string and pass up a NULL pointer...
  */
 static int
-prompt(char *pr, char *proposal, char **answer)
+prompt(char *prmpt, char *proposal, char **answer)
 {
-char *nval;
-int rval=0;
+char *nval = 0, *pr, *nl;
+int rval=0,i;
+
+#ifndef USE_READLINE
+	do {
+	free (nval);
+	for (pr = prmpt; pr && *pr && (nl=strchr(pr, '\n')); pr = nl+1) {
+		while (pr<=nl)
+			fputc(*pr++, stdout);
+	}
+	nval=gl_get_line(mygl, pr, proposal, -1);
+#else
 	if (proposal) {
-		/* readline doesn't allow us to give a 'start' value
-		 * therefore, we apply this ugly hack:
-		 * we stuff the characters back into the input queue
-		 */
-		while (*proposal)
-			rl_stuff_char(*proposal++);
+	/* readline doesn't allow us to give a 'start' value
+	 * therefore, we apply this ugly hack:
+	 * we stuff the characters back into the input queue
+	 */
+	while (*proposal)
+		rl_stuff_char(*proposal++);
 		/* a special hack which will reset the undo list */
 		rl_stuff_char(SPC_CLEAR_UNDO);
 	}
-	nval=readline(pr);
+	nval = readline(prompt);
+#endif
 	if (!*nval) {
-		free(nval); nval=0; /* discard empty answer */
+		nval=0; /* discard empty answer */
 	}
+#ifndef USE_READLINE
+	 else {
+		nval = strdup(nval);
+		/* strip trailing '\n' '\r' */
+		if ( (i = strlen(nval)) > 0 && ('\r' == nval[i-1] || '\n' == nval[i-1]) )
+			nval[i-1]='\0';
+		if (!*nval) {
+			free(nval);
+			nval = 0;
+		}
+
+	}
+#endif
 	if (nval) {
 		register char *src, *dst;
 		/* strip leading whitespace */
@@ -632,6 +678,7 @@ int rval=0;
 			dst=nval;
 			while ((*dst++=*src++));
 		}
+#ifdef USE_READLINE
 		switch (*nval) {
 			case SPC_STOP:
 			case SPC_UP:
@@ -655,7 +702,16 @@ int rval=0;
 				break;
 
 		}
+#endif
 	}
+#ifndef USE_READLINE
+	if (useHotkeys) {
+		rval = getConsoleSpecialChar();
+		if (rval < 0)
+			rval = 0;
+	}
+	} while (SPC_RESTORE == rval);
+#endif
 	*answer=nval;
 	return rval;
 }
@@ -847,9 +903,13 @@ static int
 callGet(GetProc p, char *prompt, char **ppval, int mandatory, int repeat)
 {
 int rval;
+#ifdef USE_READLINE
 	clear_history();
+#endif
 	do {
+#ifdef USE_READLINE
 		if (*ppval && **ppval) add_history(*ppval);
+#endif
 	} while ((rval=p(prompt,ppval,mandatory)) && repeat);
 	return rval;
 }
@@ -1146,16 +1206,37 @@ rtems_task Init(
   extern char           *rtems_bsdnet_bootp_boot_file_name;
   Parm	p;
 
-  rl_initialize();
+	fn = tmp = malloc(500);
 
-  rl_bind_key(SPC_REBOOT,handle_spc);
-  rl_bind_key(SPC_CLEAR_UNDO, hack_undo);
-  /* readline (temporarily) modifies the argument to rl_parse_and_bind();
-   * mustn't be static/ro text
-   */
-  tmp=strdup("Control-r:revert-line");
-  rl_parse_and_bind(tmp);
-  free(tmp);
+ 	installConsoleCtrlXHack(SPC_REBOOT);
+
+#ifdef USE_READLINE
+	rl_initialize();
+
+	rl_bind_key(SPC_REBOOT,handle_spc);
+	rl_bind_key(SPC_CLEAR_UNDO, hack_undo);
+	/* readline (temporarily) modifies the argument to rl_parse_and_bind();
+	 * mustn't be static/ro text
+	 */
+	tmp=strdup("Control-r:revert-line");
+	rl_parse_and_bind(tmp);
+#else
+	/* no history */
+	mygl = new_GetLine(500,0);
+
+	fn += sprintf(fn,"bind ^%c newline\n",SPC2CHR(SPC_STOP));
+	addConsoleSpecialChar(SPC_STOP);
+	fn += sprintf(fn,"bind ^%c newline\n",SPC2CHR(SPC_RESTORE));
+	addConsoleSpecialChar(SPC_RESTORE);
+	fn += sprintf(fn,"bind ^%c newline\n",SPC2CHR(SPC_UP));
+	addConsoleSpecialChar(SPC_UP);
+   	fn += sprintf(fn,"bind ^%c newline\n",SPC2CHR(SPC_ESC));
+	addConsoleSpecialChar(SPC_ESC);
+
+	gl_configure_getline(mygl, tmp, 0, 0);
+#endif
+
+	free(tmp); tmp = 0;
 
 	/* initialize 'flags'; all configuration variables
 	 * must be malloc()ed
@@ -1254,8 +1335,6 @@ rtems_task Init(
 		/* shut up the yellowfin */
 		yellowfin_debug=0;
 	}
-
-	installConsoleCtrlXHack(CTRL_X);
 
 	{
 			/* check if they want us to use bootp or not */

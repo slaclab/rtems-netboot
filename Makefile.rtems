@@ -56,7 +56,8 @@ CFLAGS += $(DEBUG)
 
 LD_PATHS  += $(exec_prefix)/lib
 #LD_LIBS   += -lcexp -lelf -lreadline -ltermcap -lregexp
-LD_LIBS   += -lreadline -ltermcap
+LD_LIBS   += -ltecla_r
+#LD_LIBS   += -lreadline -ltermcap
 #LDFLAGS   += -L/usr/local/rtems/powerpc-rtems/lib -Wl,-Map,map
 
 #
