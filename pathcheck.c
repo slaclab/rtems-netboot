@@ -90,9 +90,15 @@ int help = 0, rc;
 	if ( help ) {
 		fprintf(stderr,"\nYou specified a possibly ill-formed remote path; trying local...\n");
 		fprintf(stderr,"Valid pathspecs are:\n");
+#ifdef NFS_SUPPORT
 		fprintf(stderr,"   NFS: [<uid>.<gid>@][<host>]:<export_path>:<symfile_path>\n"); 
+#endif
+#ifdef TFTP_SUPPORT
 		fprintf(stderr,"  TFTP: [/TFTP/<host_ip>]<symfile_path>\n"); 
+#endif
+#ifdef RSH_SUPPORT
 		fprintf(stderr,"   RSH: [<host>:]~<user>/<symfile_path>\n"); 
+#endif
 	}
 	return LOCAL_PATH;
 }
