@@ -30,33 +30,87 @@ either using the BOOTP protocol or from NVRAM (which option
 to use by default is also NVRAM configurable).
 
 It then tries to download the 'boot file' from the
-'server' using either the 'rsh' or the 'tftp' protocol.
+'server' using either the 'nfs', 'rsh' or the 'tftp' protocol.
+
+Common Parameters
+- - - - - - - - -
+This section describes a set of parameters/conventions
+common to all boot methods:
+
+  path: relative path to the boot file on the server.
+        The path may end in a directory or be empty
+        altogether.  In this case, the default filename
+        'rtems.bin' is appended to the path.
+
+  hostspec: defines the boot file server. May either
+        be a DNS name (provided that the boot parameters
+        specify a DNS server) or an IP address in standard
+        'dot-notation'.
+        The hostspec may be missing thus instructing
+        the bootloader to use the default server. The
+        default server is either the BOOTP server
+        ('d' key or BOOTP-enable flag set to 'P' or 'Y'
+         and a key other than 'm' is pressed)
+		or the server stored in NVRAM
+        ('m' key or BOOTP-enable flag set to 'N'
+         and a key other than 'd' is pressed)
 
 RSH download
 - - - - - - -
-A file name starting with a '~' (tilde) directs the
-loader to issue a 
+A file name conforming to the syntax 
 
-	rsh -l <user> cat <file>
+  rsh-path = [ hostspec, ':' ], '~', user, [ '/', path ];
 
-command for downloading the image. <user> and <filename>
-are extracted from the BOOTP 'filename' answer:
+instructs loader to issue a 
 
-    '~' <user> '/' <file>
+	rsh hostspec -l user cat path
 
-i.e. <file> is relative to <user>'s home directory.
+command for downloading the image. <user> and <path>
+are extracted from the BOOTP 'filename' answer.
+I.e., <path> is relative to <user>'s home directory.
+
+Examples:
+  server:~rtems/rtems-4.6.0/bin/rtems.bin
+  ~rtems	(* uses file 'rtems.bin' in user 'rtems' home dir *)
+
+NFS download
+- - - - - - -
+A valid NFS path specifier must conform to the syntax
+
+  nfs-path    = [ server ], ':',  remote-path, ':' [ [ '/' ],  path ];
+  server      = [ uid, '.', gid, '@' ], [ hostspec ];
+  uid         = digit, { digit };
+  gid         = digit, { digit };
+  hostspec    = dns-name |  dot-notation-ip-address;
+  remote-path = '/', exported-path-to-mount;
+  path        = file-relative-to-mountpoint;
+
+Optionally, the user and group IDs to be used for
+authentication on the NFS server can be provided
+(defaults to 0.0).
+
+Examples:
+  :/export/rtems:4.6.0/bin/rtems.bin
+  1024.1024@192.168.2.12:/export/rtems:4.6.0/bin
+  1111@1111:/export/rtems:4.6.0/bin/rtems-test.bin
+  :/export/rtems:
 
 TFTP download
 - - - - - - -
-If the filename has no initial '~', RTEMS' ordinary
-TFTP filesystem will be used for downloading the
-image. If the filename has no initial "/TFTP"
-prefix, "/TFTP/BOOTP_HOST" will be used, instructing
-the loader to connect to the server whose address
-was obtained using BOOTP. Alternatively, a 'dot'
-notation IP address may denote the TFTP server:
+The syntax for a TFTP path specifier is
 
-	'/TFTP/999.99.99.99/imagefile'
+  tftp-path = [ '/TFTP/', serverid ], path;
+  serverid  = dot-notation-ip-address | 'BOOTP_HOST';
+
+If the '/TFTP/', serverid prefix is missing, the
+default prefix "/TFTP/BOOTP_HOST" will be used.
+'BOOTP_HOST' is substituted by the default server
+(see 'hostspec' definition above). Note that a
+DNS name can *not* be used.
+
+Note that simple relative <path> lacking any
+'~' or ':' characters only matches the <tftp-path>
+rule. The loader attempts to use TFTP in such cases.
 
 Manual ServerIP / Filename configuration
 - - - - - - - - - - - - - - - - - - - - -
@@ -68,7 +122,7 @@ above.
 
 Manual Configuration
 - - - - - - - - - - -
-The loader now also supports using manually configured
+The loader also supports using manually configured
 IP addresses etc. which it stores in NVRAM. A programmable
 flag (also a NVRAM configuration setting) determines whether
 to use the manual/NVRAM configuration or to obtain
