@@ -11,7 +11,7 @@
 
 #define  CTRL_X 030
 /* our dummy line discipline */
-#define  HACKDISC 5
+#define  HACKDISC 6 /* 'loadable' according to termios.c */
 
 
 static int rebootChar = CTRL_X;
@@ -86,13 +86,16 @@ addConsoleSpecialChar(int ch)
 int
 installConsoleCtrlXHack(int magicChar)
 {
-int	d=HACKDISC,o;
+int				d=HACKDISC,o;
+struct linesw	dorig;
+
 	if (magicChar)
 		rebootChar=magicChar;
+
 	/* now install our 'Ctrl-C' hack, so they can abort anytime while
 	 * network lookup and/or loading is going on...
 	 */
-	linesw[d]=dummy_ldisc;
+
 	/* just by installing the line discipline, the
 	 * rtems_termios_tty pointer gets 'magically' installed into the
 	 * ttywakeup struct...
@@ -100,14 +103,21 @@ int	d=HACKDISC,o;
 	 * Start with retrieving the original ldisc...
 	 */
 	assert(0==ioctl(0,TIOCGETD,&o));
+	for ( d = HACKDISC; d == o && d < MAXLDISC; d++ )
+			/* nothing else to do */;
+	assert(d<MAXLDISC);
+
+	/* switch line discs */
+	dorig = linesw[d];
+	linesw[d]=dummy_ldisc;
 	assert(0==ioctl(0,TIOCSETD,&d));
+
 	/* make sure we got a rtems_termios_tty pointer */
 	assert(ctrlCIntercept.sw_arg);
-	/* for some reason, it seems that we must reinstall the original discipline
-	 * otherwise, the system seems to freeze further down the line (during/after
-	 * network init)
-	 */
+
+	/* reinstall the original discipline */
 	assert(0==ioctl(0,TIOCSETD,&o));
+	linesw[d]=dorig;
 
 	/* finally install our handler */
 	assert(0==ioctl(0,RTEMS_IO_RCVWAKEUP,&ctrlCIntercept));

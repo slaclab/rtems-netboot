@@ -6,10 +6,11 @@
 #
 
 # C source names, if any, go here -- minus the .c
-C_PIECES=netboot ctrlx
+C_PIECES=netboot ctrlx term
 C_FILES=$(C_PIECES:%=%.c)
 C_O_FILES=$(C_PIECES:%=${ARCH}/%.o)
 
+# link from the subdir
 # C++ source names, if any, go here -- minus the .cc
 CC_PIECES=
 CC_FILES=$(CC_PIECES:%=%.cc)
@@ -67,7 +68,7 @@ LD_LIBS   += -ltecla_r
 #  'make clobber' already includes 'make clean'
 #
 
-CLEAN_ADDITIONS += 
+CLEAN_ADDITIONS += term.c
 CLOBBER_ADDITIONS +=
 
 all:	${ARCH} $(SRCS) $(PGMS)
@@ -75,8 +76,8 @@ all:	${ARCH} $(SRCS) $(PGMS)
 ${PGMS}: ${OBJS} ${LINK_FILES}
 	$(make-exe)
 
-ballah:
-	echo $(PROJECT_RELEASE)
+term.c: termsize/term.c
+	ln -s $^ $@
 
 # Install the program(s), appending _g or _p as appropriate.
 # for include files, just use $(INSTALL_CHANGE)
