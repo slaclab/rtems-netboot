@@ -6,7 +6,7 @@
 #
 
 # C source names, if any, go here -- minus the .c
-C_PIECES=netload vmeconfig
+C_PIECES=netload
 C_FILES=$(C_PIECES:%=%.c)
 C_O_FILES=$(C_PIECES:%=${ARCH}/%.o)
 
@@ -57,7 +57,7 @@ CFLAGS   += -I/usr/local/rtems/powerpc-rtems/include
 LD_PATHS  +=
 #LD_LIBS   += -lcexp -lelf -lreadline -ltermcap -lregexp
 LD_LIBS   += -lreadline -ltermcap
-LDFLAGS   += -L/usr/local/rtems/powerpc-rtems/lib
+LDFLAGS   += -L/usr/local/rtems/powerpc-rtems/lib -Wl,-Map,map
 
 #
 # Add your list of files to delete here.  The config files

@@ -5,10 +5,9 @@
  */
 
 #define RSH_CMD			"cat "					/* Command for loading the image using RSH */
+#define TFTP_PREPREFIX	"/TFTP/"
 #define TFTP_PREFIX		"/TFTP/BOOTP_HOST/"		/* filename to prepend when accessing the image via TFTPfs (only if "/TFTP/" not already present) */
 #define CMDPARM_PREFIX	"BOOTFILE="				/* if defined, 'BOOTFILE=<image filename>' will be added to the kernel commandline */
-#define ABORT_WAIT_SECS	2						/* how many seconds to give the user for aborting a netboot */
-
 
 #include <string.h>
 #include <stdlib.h>
@@ -28,6 +27,31 @@
 #include <arpa/inet.h>
 
 #include <bsp.h>
+
+/* define after including <bsp.h> */
+
+#ifdef LIBBSP_POWERPC_SVGM_BSP_H
+#define NVRAM_START		((unsigned char*)0xffe9f000)				/* use pSOS area */
+#define NVRAM_END		((unsigned char*)0xffe9f4ff)				/* use pSOS area */
+#define NVRAM_STR_START	(NVRAM_START + 2*sizeof(unsigned short))
+#define NVRAM_SIGN		0xcafe										/* arbitrary signature */
+#else
+#error This application (NVRAM code sections) only works on Synergy VGM BSP
+#endif
+
+#define DELAY_MIN "1"
+#define DELAY_MAX "30"
+#define DELAY_DEF "2"
+
+/* special answers */
+#define SPC_STOP 1
+#define SPC_UP   2
+#define SPC_ESC  3
+
+#define STR_STOP "."
+#define STR_UP   "^"
+#define STR_ESC  "@"
+
 
 
 #include <readline/readline.h>
@@ -176,6 +200,28 @@ struct rtems_bsdnet_config rtems_bsdnet_config = {
 	{0,0,0},
     };
 
+#define FLAG_MAND	1
+#define FLAG_NOUSE	2	/* dont put into the commandline at all */
+#define FLAG_CLRBP  4	/* field needs to be cleared for bootp  */
+
+
+typedef struct ParmRec_ {
+	char	*name;
+	char	**pval;
+	char	*prompt;
+	int 	(*getProc)(char *prompt, char **proposal, int mandatory);
+	int		flags;
+} ParmRec, *Parm;
+
+static unsigned short
+appendNVRAM(unsigned char **pnvram, Parm parm);
+
+static int
+readNVRAM(Parm parmList);
+
+static void
+writeNVRAM(Parm parmList);
+
 /* NOTE: rtems_bsdnet_ifconfig(,SIOCSIFFLAGS,) does only set, but not
  *       clear bits in the flags !!
  */
@@ -242,6 +288,7 @@ long	n=0;
 fd_set	r,w,e;
 char	errbuf[1000];
 struct  timeval timeout;
+int		doTftp = (-1==errfd);
 
 register long ntot=0,got;
 
@@ -250,6 +297,7 @@ register long ntot=0,got;
 
 	n++;
 	while (fd>=0 || errfd>=0) {
+		if (!doTftp) {
 		FD_ZERO(&r);
 		FD_ZERO(&w);
 		FD_ZERO(&e);
@@ -260,17 +308,17 @@ register long ntot=0,got;
 		if (errfd>=0)	FD_SET(errfd,&r);
 		if ((got=select(n,&r,&w,&e,&timeout))<=0) {
 				if (got) {
-					fprintf(stderr,"rsh select() error: %s.\n",
+					fprintf(stderr,"network select() error: %s.\n",
 							strerror(errno));
 				} else {
-					fprintf(stderr,"rsh timeout\n");
+					fprintf(stderr,"network read timeout\n");
 				}
 				return 0;
 		}
 		if (errfd>=0 && FD_ISSET(errfd,&r)) {
 				got=read(errfd,errbuf,sizeof(errbuf));
 				if (got<0) {
-					fprintf(stderr,"rsh error (reading stderr): %s.\n",
+					fprintf(stderr,"network read error (reading stderr): %s.\n",
 							strerror(errno));
 					return 0;
 				}
@@ -280,10 +328,11 @@ register long ntot=0,got;
 					errfd=-1; 
 				}
 		}
-		if (fd>=0 && FD_ISSET(fd,&r)) {
+		}
+		if (fd>=0 && ((doTftp) || FD_ISSET(fd,&r))) {
 				got=read(fd,bufp,size);
 				if (got<0) {
-					fprintf(stderr,"rsh error (reading stdout): %s.\n",
+					fprintf(stderr,"network error (reading stdout): %s.\n",
 							strerror(errno));
 					return 0;
 				}
@@ -291,7 +340,7 @@ register long ntot=0,got;
 					bufp+=got;
 					ntot+=got;
 					if ((size-=got)<=0) {
-							fprintf(stderr,"rsh buffer too small for image\n");
+							fprintf(stderr,"download buffer too small for image\n");
 							return 0;
 					}
 				} else {
@@ -318,13 +367,106 @@ register char *end=start+size;
 		__asm__ __volatile__("sync");
 }
 
-/* kernel commandline parameters */
+/* all kernel commandline parameters */
 static char *cmdline=0;
+/* editable part of commandline */
+static char *bootparms=0;
 /* server IP address */
 static char *srvname=0;
 /* image file name */
 static char *filename=0;
 static char *tftp_prefix=0;
+
+/* flags need to strdup() these! */
+static char *use_bootp="Y";
+static char *auto_delay_secs=DELAY_DEF;
+
+static int getString();
+static int getCmdline();
+static int getIpAddr();
+static int getYesNo();
+static int getNum();
+
+#define FILENAME_IDX 0
+#define SERVERIP_IDX 2
+#define BOOTP_EN_IDX 15
+
+/* The code assembling the kernel boot parameter line depends on the order
+ * the parameters are listed
+ */
+static ParmRec parmList[]={
+	{ "BP_FILE=",  &filename,
+			"Boot file name (may be '~user/path' to specify rsh user): ",
+			getString,		FLAG_MAND,
+	},
+	{ "BP_PARM=",  &bootparms,
+			"Command line parameters: ",
+			getCmdline,		FLAG_NOUSE,
+	},
+	{ "BP_SRVR=",  &srvname,
+			"Server IP:    ",
+			getIpAddr,		FLAG_MAND,
+	},
+	{ "BP_GTWY=",  &rtems_bsdnet_config.gateway,
+			"Gateway IP:   ",
+			getIpAddr,		FLAG_CLRBP, 
+	},
+	{ "BP_MYIP=",  &eth_ifcfg.ip_address,
+			"My IP:        ",
+			getIpAddr,		FLAG_MAND | FLAG_CLRBP,
+	},
+	{ "BP_MYMK=",  &eth_ifcfg.ip_netmask,
+			"My netmask:   ",
+			getIpAddr,		FLAG_MAND | FLAG_CLRBP,
+	},
+	{ "BP_MYNM=",  &rtems_bsdnet_config.hostname,
+			"My name:      ",
+			getString,		FLAG_CLRBP,
+	},
+	{ "BP_MYDN=",  &rtems_bsdnet_config.domainname,
+			"My domain:    ",
+			getString,		FLAG_CLRBP,
+	},
+	{ "BP_LOGH=",  &rtems_bsdnet_config.log_host,
+			"Loghost IP:   ",
+			getIpAddr,		FLAG_CLRBP,
+	},
+	{ "BP_DNS1=",  &rtems_bsdnet_config.name_server[0],
+			"DNS server 1: ",
+			getIpAddr,		FLAG_CLRBP,
+	},
+	{ "BP_DNS2=",  &rtems_bsdnet_config.name_server[1],
+			"DNS server 2: ",
+			getIpAddr,		FLAG_CLRBP,
+	},
+	{ "BP_DNS3=",  &rtems_bsdnet_config.name_server[2],
+			"DNS server 3: ",
+			getIpAddr,		FLAG_CLRBP,
+	},
+	{ "BP_NTP1=",  &rtems_bsdnet_config.ntp_server[0],
+			"NTP server 1: ",
+			getIpAddr,		FLAG_CLRBP,
+	},
+	{ "BP_NTP2=",  &rtems_bsdnet_config.ntp_server[1],
+			"NTP server 2: ",
+			getIpAddr,		FLAG_CLRBP,
+	},
+	{ "BP_NTP3=",  &rtems_bsdnet_config.ntp_server[2],
+			"NTP server 3: ",
+			getIpAddr,		FLAG_CLRBP,
+	},
+	{ "BP_ENBL=",  &use_bootp,
+			"Use bootp [Y/N]:             ",
+			getYesNo,		0,
+	},
+	{ "BP_DELY=",  &auto_delay_secs,
+			"Autoboot Delay ["
+					DELAY_MIN"..."
+					DELAY_MAX     "secs]: ",
+			getNum,			FLAG_NOUSE,
+	},
+	{ 0, }
+};
 
 
 static char *
@@ -364,7 +506,7 @@ register unsigned long algn;
 	 */
 	bringdown_netifs(rtems_bsdnet_config.ifconfig);
 
-	fprintf(stderr,"Starting loaded image @%p NOW...\n",buf);
+	fprintf(stderr,"Starting loaded image @%p NOW...\n\n\n",buf);
 
 	/* make sure they see our messages */
 	fflush(stderr); fflush(stdout);
@@ -375,9 +517,19 @@ register unsigned long algn;
 	char *cmdline_end=cmdline;
 	if (cmdline_end)
 		cmdline_end+=strlen(cmdline);
-	__asm__ __volatile__("mr %%r3, %0; mr %%r4, %1; mr %%r5, %2; mr %%r6, %3; mr %%r7, %4;  mtlr %2; blr"
-						::"r"(cmdline), "r"(cmdline_end), "r"(buf),"r"(buf+ntot),"r"(algn)
-						:"r3","r4","r5","r6","r7");
+	__asm__ __volatile__(
+			/* setup commandline */
+			"mr %%r3, %0; mr %%r4, %1; mr %%r5, %2; mr %%r6, %3; mr %%r7, %4\n"
+			/* switch off MMU and interrupts (assume 1:1 virtual-physical mapping) */
+			"mfmsr %0\n"
+			"andc  %0, %0, %5\n"
+			"mtspr %6, %0\n"
+			"mtspr %7, %2\n"
+			/* there we go... */
+			"rfi\n"
+			::"r"(cmdline), "r"(cmdline_end), "r"(buf),"r"(buf+ntot),"r"(algn),
+			  "r"(MSR_EE | MSR_DR | MSR_IR), "i"(SRR1), "i"(SRR0)
+			:"r3","r4","r5","r6","r7");
 	}
 #endif
 
@@ -389,104 +541,482 @@ cleanup:
 }
 
 
-static char *
-prompt(char *pr, char *proposal)
+/* The callers of this routine rely on not
+ * getting an empty string.
+ * Hence 'prompt()' must free() an empty
+ * string and pass up a NULL pointer...
+ */
+static int
+prompt(char *pr, char *proposal, char **answer)
 {
-char *rval;
+char *nval;
+int rval=0;
 	if (proposal) {
 		while (*proposal)
 			rl_stuff_char(*proposal++);
 	}
-	rval=readline(pr);
-	if (rval && *rval)
-		add_history(rval);
+	nval=readline(pr);
+	if (!*nval) {
+		free(nval); nval=0; /* discard empty answer */
+	}
+	if (nval) {
+		char *dst,*src;
+		/* strip leading whitespace */
+		for (src=nval; ' '==*src || '\t'==*src; src++);
+		if (src>nval) {
+			dst=nval;
+			while ((*dst++=*src++));
+		}
+		if (*nval) {
+			if      (0==strcmp(nval,STR_STOP)) rval = SPC_STOP;
+			else if (0==strcmp(nval,STR_UP))   rval = SPC_UP;
+			else if (0==strcmp(nval,STR_ESC))  rval = SPC_ESC;
+			else {
+				add_history(nval);
+			}
+			if (rval) {
+				free (nval);
+				nval=0;
+			}
+		}
+	}
+	*answer=nval;
 	return rval;
 }
 
-static char *
-getIpAddr(char *what, char *old, struct in_addr *ip)
+static int
+getIpAddr(char *what, char **pval, int mandatory)
 {
-	struct in_addr inDummy;
-	static const char *fmt="Enter %s IP (dot.dot):";
-	char *p,*rval=0;
+struct	in_addr inDummy;
+char	*p, *nval=0;
+int		result=0;
 
-	if (!ip) ip=&inDummy;
+#ifdef USE_TEMPLATE
+	static const char *fmt="Enter %s(dot.dot):";
+	int l,pad=0;
+
 	clear_history();
-	if (old && *old) add_history(old);
+	if (*pval && **pval) add_history(*pval);
 
-	p=malloc(strlen(fmt)+strlen(what)+1);
+	l=strlen(fmt)+strlen(what);
+	if (l<pad) {
+		pad=35-l;
+		l=35;
+	}
+	p=malloc(l+1);
 	sprintf(p,fmt,what);
+	while (pad>0) {
+		p[35-pad]=' ';
+		pad--;
+	}
+	p[l]=0;
+#else
+	p=what;
+#endif
 
 	do {
-		rval=prompt(p,old);
-		if (rval && !inet_aton(rval,ip)) {
+		if (mandatory<0) mandatory=0; /* retry flag */
+		/* Do they want something special ? */
+		result=prompt(p,*pval,&nval);
+		if (nval) {
+			if (!inet_aton(nval,&inDummy)) {
 				fprintf(stderr,"Invalid address, try again\n");
-				free(rval); rval=0;
+				free(nval); nval=0;
+				if (!mandatory)
+					mandatory=-1;
+			}
 		}
-	} while (!rval);
+	} while ( !result && !nval && mandatory);
+
+#ifdef USE_TEMPLATE
 	free(p);
+#endif
 
-	return rval;
-}
-
-static char *
-getString(char *what, char *old)
-{
-	clear_history();
-	if (old && *old) add_history(old);
-	return prompt(what,old);
-}
-
-static char *
-getCmdline(char *old)
-{
-char *rval;
-	do {
-		rval=getString("Command Line Parameters:",old);
-		if (rval && strstr(rval,CMDPARM_PREFIX)) {
-					fprintf(stderr,"must not contain '%s'\n",CMDPARM_PREFIX);
-					free(old); old=rval;
-					rval=0;
+	/* prompt() sets nval to NULL on special answers */
+	if (nval) {
+		if (!mandatory && 0==strcmp(nval,"0.0.0.0")) {
+			free(nval); nval=0;
+		} else {
+			free(*pval);
+			*pval=nval;
 		}
-	} while (!rval);
-	free(old);
-	return rval;
+	}
+
+	return result;
+}
+
+static int
+getYesNo(char *what, char **pval, int mandatory)
+{
+char *nval=0,*chpt;
+int  result=0;
+
+	clear_history();
+	if (*pval && **pval) add_history(*pval);
+
+	do {
+		if (mandatory<0) mandatory=0; /* retry flag */
+		/* Do they want something special ? */
+		result=prompt(what,*pval,&nval);
+		if (nval) {
+			switch (*nval) {
+				case 'Y':
+				case 'y':
+				case 'N':
+				case 'n':
+						for (chpt=nval; *chpt; chpt++)
+							*chpt=toupper(*chpt);
+						if (!*(nval+1))
+							break; /* acceptable */
+
+						if (!strcmp(nval,"YES") || !strcmp(nval,"NO")) {
+							nval[1]=0; /* Y/N */
+							break;
+						}
+						/* unacceptable, fall thru */
+
+				default:fprintf(stderr,"What ??\n");
+						if (!mandatory) mandatory=-1;
+						/* fall thru */
+				case 0:	free(nval); nval=0;
+				break;
+			}
+		}
+	} while (!result && !nval && mandatory);
+	if (nval) {
+		free(*pval); *pval=nval;
+	}
+	return result;
+}
+
+static int
+getNum(char *what, char **pval, int mandatory)
+{
+char *nval=0;
+int  result=0;
+	clear_history();
+	if (*pval && **pval) add_history(*pval);
+	do {
+		if (mandatory<0) mandatory=0; /* retry flag */
+		/* Do they want something special ? */
+		result=prompt(what,*pval,&nval);
+		if (nval) {
+			unsigned long	tst;
+			char			*endp;
+			tst=strtoul(nval,&endp,0);
+			if (*endp) {
+				fprintf(stderr,"Not a valid number - try again\n");
+				free(nval); nval=0;
+				if (!mandatory) mandatory=-1;
+			}
+		}
+	} while (!result && !nval && mandatory);
+	if (nval || !result) {
+		/* may also be a legal empty string */
+		free(*pval); *pval=nval;
+	}
+	return result;
+}
+
+static int
+getString(char *what, char **pval, int mandatory)
+{
+char *nval=0;
+int  result=0;
+	clear_history();
+	if (*pval && **pval) add_history(*pval);
+	do {
+		/* Do they want something special ? */
+		result=prompt(what,*pval,&nval);
+	} while (!result && !nval && mandatory);
+	if (nval || !result) {
+		/* may also be a legal empty string */
+		free(*pval); *pval=nval;
+	}
+	return result;
+}
+
+static int
+getCmdline(char *what, char **pval, int mandatory)
+{
+char *old=0;
+int  retry = 1, result=0;
+	while (retry-- && !result) {
+		old = strdup(*pval);
+		/* old value is released by getString */
+		result=getString(what, pval, 0);
+		if (*pval) {
+			/* if they gave a special answer, the old value is restored */
+			int i;
+			if (0==strlen(*pval)) {
+				free(*pval);
+				*pval=0;
+			} else {
+			for (i=0; parmList[i].name; i++) {
+				if (parmList[i].flags & FLAG_NOUSE)
+					continue; /* this name is not used */
+				if (strstr(*pval,parmList[i].name)) {
+					fprintf(stderr,"must not contain '%s' - this name is private for the bootloader\n",parmList[i].name);
+					retry=1;
+					/* restore old value */
+					free(*pval); *pval=old;
+					old=0;
+					break;
+				}
+			}
+			}
+		}
+	}
+	if (old) free(old);
+	return result;
 }
 
 static void
 help(void)
 {
-	printf("Press 'c' for manually entering your IP configuration\n");
+	printf("\n");
+	printf("Press 'c' for changing your NVRAM configuration\n");
 	printf("Press 'b' for manually entering filename/cmdline parameters only\n");
 	printf("Press 'a' for continuing the automatic netboot\n");
+	printf("Press 's' for showing the current NVRAM configuration\n");
 	printf("Press any other key for this message\n");
 }
 
 static int
-config(void)
+showConfig(void)
 {
-struct in_addr i;
-char **p,*old;
-p=&rtems_bsdnet_config.ifconfig->ip_address; *p=getIpAddr("my IP address",*p,&i);
-p=&rtems_bsdnet_config.ifconfig->ip_netmask; *p=getIpAddr("my netmask",*p,&i);
-
-p=&srvname;                                  *p=getIpAddr("server address",*p,&i);
-free(tftp_prefix);
-#define TFTP_PREPREFIX	"/TFTP/"
-tftp_prefix=malloc(strlen(TFTP_PREPREFIX)+strlen(srvname)+2);
-sprintf(tftp_prefix,"%s%s/",TFTP_PREPREFIX,srvname);
-
-p=&rtems_bsdnet_config.gateway;              *p=getIpAddr("gateway address",*p,&i);
-if (0==i.s_addr) {
-	free(*p); *p=0; /* allow '0.0.0.0' gateway */
+Parm p;
+    if (!readNVRAM(parmList)) {
+		fprintf(stderr,"\nWARNING: no valid NVRAM configuration found\n");
+	} else {
+		fprintf(stderr,"\nNVRAM configuration:\n\n");
+		for (p=parmList; p->name; p++) {
+			fprintf(stderr,"  %s%s\n",
+				p->prompt,
+				*p->pval ? *p->pval : "");
+		}
+		fprintf(stderr,"\n");
+	}
+	return -1; /* continue looping */
 }
-old = filename;
-filename = getString("Enter filename (maybe ~user to specify rsh user):",old);
-free(old);
-cmdline = getCmdline(cmdline);
-rtems_bsdnet_config.bootp=0;	/* disable bootp */
-return -2;
+
+
+
+static int
+config(int howmany)
+{
+int  i=0;
+Parm p;
+
+	fprintf(stderr,"Changing NVRAM configuration\n");
+	fprintf(stderr,"Use '%s' field value to go up\n",      STR_UP);
+	fprintf(stderr,"Use '%s' field value to quit+write\n", STR_STOP);
+	fprintf(stderr,"Use '%s' field value to quit+cancel\n",STR_ESC);
+
+if		(howmany<1)
+	howmany=1;
+else if	(howmany > sizeof(parmList)/sizeof(parmList[0]) - 1)
+	howmany = sizeof(parmList)/sizeof(parmList[0]) - 1;
+
+while ( i>=0 && i<howmany ) {
+	switch (parmList[i].getProc(parmList[i].prompt,
+								parmList[i].pval,
+								parmList[i].flags&FLAG_MAND)) {
+
+		case SPC_ESC:
+			fprintf(stderr,"Restoring previous configuration\n");
+			if (readNVRAM(parmList))
+				return -1;
+			else {
+				fprintf(stderr,"Unable to restore configuration, please start over\n");
+			}
+			i=0;
+		break;
+
+		case SPC_STOP:  i=-1;
+		break;
+		case SPC_UP:	if (0==i)
+							i=howmany;
+						else
+							i--;
+		break;
+
+		default:		i++;
+		break;
+	}
 }
+
+/* make sure we have all mandatory parameters */
+for (p=parmList; p->name; p++) {
+	if ( (p->flags&FLAG_MAND) && !*p->pval ) {
+		do {
+			fprintf(stderr,"Need parameter...\n");
+			p->getProc(p->prompt,
+								p->pval,
+								FLAG_MAND);
+		} while (!*p->pval);
+	}
+}
+
+/* make sure we have a reasonable auto_delay */
+{
+char *endp,*override=0;
+unsigned long d,min,max;
+
+	min=strtoul(DELAY_MIN,0,0);
+	max=strtoul(DELAY_MAX,0,0);
+
+	if (auto_delay_secs) {
+			d=strtoul(auto_delay_secs, &endp,0);
+			if (*auto_delay_secs && !*endp) {
+				/* valid */
+				if (d<min) {
+					fprintf(stderr,"Delay too short - using %ss\n",DELAY_MIN);
+					override=DELAY_MIN;
+				} else if (d>max) {
+					fprintf(stderr,"Delay too long - using %ss\n",DELAY_MAX);
+					override=DELAY_MAX;
+				}
+			} else {
+				fprintf(stderr,"Invalid delay - using default: %ss\n",DELAY_DEF);
+				override=DELAY_DEF;
+			}
+	} else {
+		override=DELAY_DEF;
+	}
+	if (override) {
+		free(auto_delay_secs);
+		auto_delay_secs=strdup(override);
+	}
+}
+
+/* write to NVRAM */
+writeNVRAM(parmList);
+
+return -1;	/* continue looping */
+}
+
+static unsigned short
+appendNVRAM(unsigned char **pnvram, Parm parm)
+{
+unsigned char *src, *dst;
+unsigned short sum;
+unsigned char *jobs[3], **job;
+
+	if (!*parm->pval)
+		return 0;
+
+	jobs[0]=parm->name;
+	jobs[1]=*parm->pval;
+	jobs[2]=0;
+
+	sum=0;
+	dst=*pnvram;
+
+	for (job=jobs; *job; job++) {
+		for (src=*job; *src && dst<NVRAM_END-1; ) {
+			sum += (*dst++=*src++);
+		}
+
+		if (*src) {
+			fprintf(stderr,"WARNING: NVRAM overflow - not enough space\n");
+			**pnvram=0;
+			return 0;
+		}
+	}
+	/* success, append separator */
+	sum += (*dst++=' ');
+	*pnvram = dst;
+	return sum;
+}
+
+static void
+writeNVRAM(Parm parmList)
+{
+unsigned char	*nvchpt=NVRAM_STR_START;
+unsigned short	sum;
+Parm			p;
+
+		sum = 0;
+		for (p=parmList; p->name; p++) {
+			sum += appendNVRAM(&nvchpt, p);
+			*nvchpt=0;
+		}
+		/* tag the end - there is space for the terminating '\0', it's safe */
+		*nvchpt=0;
+
+		nvchpt=NVRAM_STR_START;
+		sum += (*--nvchpt=(NVRAM_SIGN & 0xff));
+		sum += (*--nvchpt=((NVRAM_SIGN>>8) & 0xff));
+		*--nvchpt=sum&0xff;
+		*--nvchpt=((sum>>8)&0xff);
+		fprintf(stderr,"\nNVRAM configuration updated\n");
+}
+
+static int
+readNVRAM(Parm parmList)
+{
+unsigned short	sum,tag;
+unsigned char	*nvchpt=NVRAM_START, *str, *pch, *end;
+Parm			p;
+
+	sum=(*nvchpt++)<<8;
+	sum+=(*nvchpt++);
+	sum=-sum;
+	sum+=(tag=*nvchpt++);
+	tag= (tag<<8) | *nvchpt;
+	sum+=*nvchpt++;
+	if (tag != NVRAM_SIGN) {
+			fprintf(stderr,"No NVRAM signature found\n");
+			return 0;
+	}
+	str=nvchpt;
+	/* verify checksum */
+	while (*nvchpt && nvchpt<NVRAM_END)
+			sum+=*nvchpt++;
+
+	if (*nvchpt) {
+			fprintf(stderr,"No end of string found in NVRAM\n");
+			return 0;
+	}
+	if (sum) {
+			fprintf(stderr,"NVRAM checksum error\n");
+			return 0;
+	}
+	/* OK, we found a valid string */
+	str = strdup(str);
+
+	for (pch=str; pch; pch=end) {
+		/* skip whitespace */
+		while (' '==*pch) {
+			if (!*++pch)
+				/* end of string reached; bail out */
+				goto cleanup;
+		}
+		if ( (end=strchr(pch,'=')) ) {
+			unsigned char *val=++end;
+
+			/* look for the end of this parameter */
+			if ((end = strchr(end, ' ')))
+					*end++=0; /* tag */
+
+			/* a valid parameter found */
+			for (p=parmList; p->name; p++) {
+				if (strncmp(pch, p->name, val-pch))
+				continue;
+					/* found the parameter */
+					free(*p->pval);
+					*p->pval=strdup(val);
+				break; /* for p=parmList */
+			}
+		}
+	}
+
+cleanup:
+	free(str);
+	return 1;
+}
+
 
 rtems_task Init(
   rtems_task_argument ignored
@@ -501,6 +1031,13 @@ rtems_task Init(
   int  useTftp,fd,errfd;
   extern struct in_addr rtems_bsdnet_bootp_server_address;
   extern char           *rtems_bsdnet_bootp_boot_file_name;
+  Parm	p;
+
+	/* initialize 'flags'; all configuration variables
+	 * must be malloc()ed
+	 */
+	use_bootp=strdup(use_bootp);
+	auto_delay_secs=strdup(auto_delay_secs);
 
 #define SADR rtems_bsdnet_bootp_server_address
 #define BOFN rtems_bsdnet_bootp_boot_file_name
@@ -509,6 +1046,11 @@ rtems_task Init(
 
 	fprintf(stderr,"\n\nRTEMS bootloader by Till Straumann <strauman@slac.stanford.edu>\n");
 	fprintf(stderr,"$Id$\n");
+
+	if (!readNVRAM(parmList)) {
+		fprintf(stderr,"No valid NVRAM settings found - initializing\n");
+		writeNVRAM(parmList);
+	}
 
 	/* give them a chance to abort the netboot */
 	{
@@ -526,9 +1068,12 @@ rtems_task Init(
 			if (tcsetattr(0,TCSANOW,&nt)) {
 				perror("TCSETATTR");
 			} else {
-				int secs;
+				unsigned secs;
 				fprintf(stderr,"\n\nType any character to abort netboot:xx");
-				for (secs=ABORT_WAIT_SECS; secs; secs--) {
+				/* it was previously verified that auto_delay_secs contains
+				 * a valid string...
+				 */
+				for (secs=strtoul(auto_delay_secs,0,0); secs; secs--) {
 					fprintf(stderr,"\b\b%2i",secs);
 					if (read(0,&ch,1)) {
 						/* got a character; abort */
@@ -547,13 +1092,15 @@ rtems_task Init(
 						do {
 							fputc('\n',stderr);
 							switch (ch) {
-								case 'c':	manual=config(); 	break;
+								case 's':	manual=showConfig();break;
+								case 'c':	manual=config(1000);break;
 								case 'b':	manual=1;			break;
 								case 'a':	manual=0;			break;
-								default:	help();
-											manual=-1;
+								default: 	manual=-1;
 											break;
 							}
+							if (-1==manual)
+								help();
 						} while (-1==manual && 1==read(0,&ch,1));
 					}
 				}
@@ -564,7 +1111,32 @@ rtems_task Init(
 
 	{
 		extern int yellowfin_debug;
-		yellowfin_debug=1;
+		/* shut up the yellowfin */
+		yellowfin_debug=0;
+	}
+
+	{
+			/* check if they want us to use bootp or not */
+			if (*use_bootp && 'N' == toupper(*use_bootp)) {
+				rtems_bsdnet_config.bootp = 0;
+				if (!manual) manual = -2;
+
+				/* rebuild tftp_prefix */
+				free(tftp_prefix);
+				tftp_prefix=malloc(strlen(TFTP_PREPREFIX)+strlen(srvname)+2);
+				sprintf(tftp_prefix,"%s%s/",TFTP_PREPREFIX,srvname);
+			} else {
+				/* clear the 'bsdnet' fields - it seems that the bootp subsystem
+				 * expects NULL pointers...
+				 */
+				for (p=parmList; p->name; p++) {
+					if ( !(p->flags & FLAG_CLRBP) )
+						continue;
+					free(*p->pval);
+					*p->pval=0;
+				}
+
+			}
 	}
 
   	rtems_bsdnet_initialize_network(); 
@@ -582,12 +1154,9 @@ rtems_task Init(
 	
 	for (;1;manual=1) {
 		if (manual>0  || !filename) {
-			char *old=0;
 			if (!manual)
 				fprintf(stderr,"Didn't get a filename from DHCP server\n");
-			old=filename;
-			filename=getString("Enter filename (maybe ~user to specify rsh user):",old);
-			free(old);
+			while (getString("Enter filename (maybe ~user to specify rsh user):", &filename, FLAG_MAND));
 		}
 		fn=filename;
 
@@ -609,16 +1178,11 @@ rtems_task Init(
 			}
 
 			if (manual>0 || !srvname) {
-				char			*old=0;
 
 				if (!srvname)
 					fprintf(stderr,"Unable to convert server address to name\n");
-				else {
-					old=srvname;
-				}
 
-				srvname=getIpAddr("server address",old,0);
-				free(old);
+				while (getIpAddr("Server address: ",&srvname,FLAG_MAND));
 			}
 
 			/* cat filename to command */
@@ -652,7 +1216,7 @@ rtems_task Init(
 			else
 				tftpInited=1;
 #endif
-			fprintf(stderr,"No user; using TFTP for download\n");
+			fprintf(stderr,"No user specified; using TFTP for download\n");
 			fn=filename;
 			if (strncmp(filename,"/TFTP/",6)) {
 				fn=cmd=realloc(cmd,strlen(tftp_prefix)+strlen(filename)+1);
@@ -664,29 +1228,66 @@ rtems_task Init(
 			}
 			errfd=-1;
 		}
-		/* assemble command line */
 		if (manual>0) {
-			cmdline=getCmdline(cmdline);
+			getCmdline("Command line parameters:",&bootparms,0);
 		} /* else cmdline==0 [init] */
+
+		/* assemble command line */
 		{
-		int len=cmdline ? strlen(cmdline) : 0;
-		if (len && cmdline[len-1]!=' ') {
-			/* add space for a separating ' ' */
-			len++;
-		}
-		cmdline=realloc(cmdline, len + strlen(CMDPARM_PREFIX) + strlen(filename) + 1);
-		cmdline[len]=0;
-		if (len)
-			cmdline[len-1]=' ';
-		strcat(cmdline,CMDPARM_PREFIX);
-		strcat(cmdline,fn);
-		}
+			int 	len;
+			Parm	end;
+
+			/* The command line parameters come first */
+			len = bootparms ? strlen(bootparms) : 0;
+
+			cmdline = realloc(cmdline, len ? len+1 : 0); /* terminating ' \0' */
+			if (len) {
+				strcpy(cmdline, bootparms);
+			}
+
+			/* then we append a bunch of environment variables */
+			if ( !rtems_bsdnet_config.bootp )
+				end = p+1000; /* will encounter the end mark */
+			else if (manual)
+				end = p+SERVERIP_IDX+1;
+			else
+				end = p;
+
+			for (p=parmList; p<end && p->name; p++) {
+				char *v;
+				int		incr;
+
+				/* treat the file name special - we must probably use the full pathname */
+				v = parmList+FILENAME_IDX == p ? fn : *p->pval;
+
+				/* unused or empty parameter */
+				if (p->flags&FLAG_NOUSE || !v) continue;
+
+				if (len) {
+					cmdline[len++]=' '; /* use space of the '\0' */
+				}
+
+				incr    = strlen(p->name) + strlen(v);
+				cmdline = realloc(cmdline, len + incr + 1); /* terminating '\0' */
+				sprintf(cmdline + len,"%s%s", p->name, v);
+				len+=incr;
+			}
 		fprintf(stderr,"Hello, this is the RTEMS remote loader; trying to load '%s'\n",
 						filename);
+
+#ifdef DEBUG
+		fprintf(stderr,"Appending Commandline:\n");
+		fprintf(stderr,"'%s'\n",cmdline ? cmdline : "<EMPTY>");
+#endif
 		doLoad(fd,errfd);
+		}
 	}
   rtems_task_delete(RTEMS_SELF);
 
   exit( 0 );
 }
 
+void
+BSP_vme_config(void)
+{
+}
