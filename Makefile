@@ -1,10 +1,10 @@
 # REAL VALUES (for use in flash)
-#FLASHSTART=0xfff80000
-#DEST=0
+FLASHSTART=0xfff80000
+DEST=0
 
 # DEBUGGING VALUES (make clean; make when changing these)
-FLASHSTART=0x400000
-DEST=0x10000
+#FLASHSTART=0x400000
+#DEST=0x10000
 
 # Use a destination address > 0, e.g. 0x10000
 # for debugging. In this case, the image will
