@@ -7,7 +7,7 @@
 
 # C source names, if any, go here -- minus the .c
 C_PIECES_netboot=netboot ctrlx term nvram
-C_PIECES_coredump=coredump ctrlx term nvram memusage
+C_PIECES_coredump=coredump ctrlx term nvram
 
 C_PIECES=$(C_PIECES_$(PGM))
 C_O_FILES=${C_PIECES:%=${ARCH}/%.o}
@@ -96,8 +96,7 @@ define m-debug
 endef
 
 
-$(APPS):%:$(ARCH)/%.elf
-
+$(APPS):%:$(ARCH)/%.exe
 
 # each APP needs to set PGM because target dependent variable settings
 # are **not** expanded in the prerequisites :-( :-(
@@ -105,12 +104,12 @@ $(APPS):%:$(ARCH)/%.elf
 # the value used by the commands :-(. Ugly
 netboot:PGM=netboot
 PGM:=netboot
-$(ARCH)/$(PGM).elf: $(OBJS) $(LINKFILES)
+$(ARCH)/$(PGM).exe: $(OBJS) $(LINKFILES)
 	$(make-exe)
 
 coredump:PGM=coredump
 PGM:=coredump
-$(ARCH)/$(PGM).elf: $(OBJS) $(LINKFILES)
+$(ARCH)/$(PGM).exe: $(OBJS) $(LINKFILES)
 	$(make-exe)
 
 

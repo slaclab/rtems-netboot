@@ -654,7 +654,6 @@ char buf[4];
 
 		if (0==doWrite(fd, start, end))
 			printf("Memory dump successfully written\n");
-		memUsageDump(1);
 	}
 }
 

@@ -54,7 +54,7 @@ mkelf=$(1:%=o-optimize/%$(EXTENS))
 
 PROGELF=$(foreach i,$(APPS),$(call mkelf,$i))
 # must still terminate in ".bin"
-EXTENS=.elf
+EXTENS=.nxe
 IMGEXT=.flashimg.bin
 TMPNAM=tmp
 MAKEFILE=Makefile
@@ -88,7 +88,7 @@ $(TMPIMG):	$(call mkelf,netboot)
 	$(OBJCOPY) -Obinary $^ $@
 
 $(PROGELF)::
-	$(MAKE) -f Makefile.rtems 
+	$(MAKE) -f Makefile.rtems
 
 $(TMPIMG).gz: $(TMPIMG)
 	$(RM) $@
