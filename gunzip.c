@@ -75,7 +75,12 @@ static void *free_mem;
 static void gunzip();
 
 /* gcc -O4 doesn't preserve start() at the beginning */
+/*
 __asm__ ("  .globl _start; _start: b start");
+*/
+
+void
+start(char *r3, char *r4, char *r5, char *r6) __attribute__ ((section(".text.start")));
 
 void
 start(char *r3, char *r4, char *r5, char *r6)

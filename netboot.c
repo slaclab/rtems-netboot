@@ -33,6 +33,7 @@
 
 #include <bsp.h>
 
+#ifndef BARE_BOOTP_LOADER
 #include <ctrlx.h>
 /* define after including <bsp.h> */
 
@@ -81,6 +82,11 @@ int ansiTiocGwinszInstall(int line);
 #endif
 
 #include <termios.h>
+
+#else
+static char *cmdline="";
+
+#endif
 
 /* this is not declared anywhere */
 int
@@ -229,8 +235,10 @@ struct rtems_bsdnet_config rtems_bsdnet_config = {
 
 static char *tftp_prefix=0;
 
+#ifndef BARE_BOOTP_LOADER
 #define __INSIDE_NETBOOT__
 #include "nvram.c"
+#endif
 
 /* NOTE: rtems_bsdnet_ifconfig(,SIOCSIFFLAGS,) does only set, but not
  *       clear bits in the flags !!
@@ -451,6 +459,7 @@ cleanup:
 	return 0;
 }
 
+#ifndef BARE_BOOTP_LOADER
 static void
 help(void)
 {
@@ -838,6 +847,24 @@ rtems_task Init(
 
   exit( 0 );
 }
+
+#else
+
+rtems_task Init(
+  rtems_task_argument ignored
+)
+{
+int fd;
+  	rtems_bsdnet_initialize_network(); 
+ 	if ( !rtems_bsdnet_initialize_tftp_filesystem() )
+		BSP_panic("TFTP FS initialization failed\n");
+	if ( (fd = open(rtems_bsdnet_bootp_boot_file_name,O_RDONLY)) < 0 )
+		BSP_panic("Unable to open boot file\n");
+	doLoad(fd,-1);
+	BSP_panic("Loading failed\n");
+}
+
+#endif
 
 void
 BSP_vme_config(void)

@@ -46,7 +46,7 @@ include $(RTEMS_ROOT)/make/leaf.cfg
 DEFINES +=
 # -DUSE_SHELL
 CPPFLAGS += -I$(exec_prefix)/include -I.
-CFLAGS += $(DEBUG) -DWINS_LINE_DISC
+CFLAGS += $(DEBUG) -DWINS_LINE_DISC -DBARE_BOOTP_LOADER
 
 #
 # CFLAGS_DEBUG_V are used when the `make debug' target is built.

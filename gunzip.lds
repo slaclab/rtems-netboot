@@ -15,6 +15,8 @@ FLASHSIZE = 0x80000 ;
 SECTIONS {
 	/* text section linked at FLASHSTART and loaded at FLASHSTART */
 	.text FLASHSTART : {
+	_start = . ;
+		*(.text.start)
 		*(.text)
 	} > CODE
 	__zl_etext = ALIGN ( 4 );
