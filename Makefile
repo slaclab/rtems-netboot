@@ -55,7 +55,8 @@ CFLAGS   += -I/usr/local/rtems/powerpc-rtems/include
 #
 
 LD_PATHS  +=
-LD_LIBS   += -lcexp -lelf -lreadline -ltermcap -lregexp
+#LD_LIBS   += -lcexp -lelf -lreadline -ltermcap -lregexp
+LD_LIBS   += -lreadline -ltermcap
 LDFLAGS   += -L/usr/local/rtems/powerpc-rtems/lib
 
 #
