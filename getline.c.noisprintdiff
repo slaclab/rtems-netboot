@@ -1,0 +1,28 @@
+Patch for libtecla to make it possible to preserve
+non-printing characters at the end of a line when
+they are mapped to the 'newline' action.
+
+Index: getline.c
+===================================================================
+RCS file: /afs/slac/g/spear/cvsrep/libs/libtecla/getline.c,v
+retrieving revision 1.2
+diff -c -r1.2 getline.c
+*** getline.c	14 Apr 2003 22:10:10 -0000	1.2
+--- getline.c	21 Jul 2003 19:26:38 -0000
+***************
+*** 2128,2134 ****
+   * Has the line been completed?
+   */
+      if(gl->endline)
+!       return gl_line_ended(gl, isprint((int)(unsigned char) c) ? c : '\n',
+  			   gl->echo && (c=='\n' || c=='\r'));
+    };
+  /*
+--- 2128,2134 ----
+   * Has the line been completed?
+   */
+      if(gl->endline)
+!       return gl_line_ended(gl, /* isprint((int)(unsigned char) c) ? c : '\n' */ c,
+  			   gl->echo && (c=='\n' || c=='\r'));
+    };
+  /*

@@ -9,6 +9,10 @@
 #define TFTP_PREFIX		"/TFTP/BOOTP_HOST/"		/* filename to prepend when accessing the image via TFTPfs (only if "/TFTP/" not already present) */
 #define CMDPARM_PREFIX	"BOOTFILE="				/* if defined, 'BOOTFILE=<image filename>' will be added to the kernel commandline */
 
+#ifdef USE_READLINE
+#undef HAVE_PATCHED_TECLA
+#endif
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -32,13 +36,18 @@
 #include <bsp.h>
 
 #include <ctrlx.h>
+#ifdef HAVE_PATCHED_TECLA
+#define getConsoleSpecialChar() do {} while (0)
+#define addConsoleSpecialChar(arg) do {} while (0)
+#endif
 /* define after including <bsp.h> */
 
 #ifdef LIBBSP_POWERPC_SVGM_BSP_H
 #define NVRAM_START		((unsigned char*)0xffe9f000)				/* use pSOS area */
 #define NVRAM_END		((unsigned char*)0xffe9f4ff)				/* use pSOS area */
 #define NVRAM_STR_START	(NVRAM_START + 2*sizeof(unsigned short))
-#define NVRAM_SIGN		0xcafe										/* arbitrary signature */
+/* CHANGE THE SIGNATURE WHEN CHANGING THE NVRAM LAYOUT */
+#define NVRAM_SIGN		0xcafe										/* signature/version */
 #else
 #error This application (NVRAM code sections) only works on Synergy VGM BSP
 #endif
@@ -223,7 +232,24 @@ struct rtems_bsdnet_config rtems_bsdnet_config = {
 #define FLAG_NOUSE	2	/* dont put into the commandline at all */
 #define FLAG_CLRBP  4	/* field needs to be cleared for bootp  */
 
-typedef int (*GetProc)(char *prompt, char **proposal, int mandatory);
+
+typedef struct NetConfigCtxtRec_	*NetConfigCtxt;
+typedef struct ParmRec_				*Parm;
+
+typedef struct NetConfigCtxtRec_ {
+	FILE	*out;
+	FILE	*err;
+	Parm	parmList;		/* descriptor list for parameters */
+	char	***parmBufps;	/* pointer array to parameter buffer pointers */
+	int		nParms;
+#ifndef USE_READLINE
+	int		useHotkeys;
+	GetLine *gl;
+#endif
+} NetConfigCtxtRec;
+
+#define GET_PROC_ARG_PROTO NetConfigCtxt c, char *prompt, char **proposal, int mandatory
+typedef int (*GetProc)(GET_PROC_ARG_PROTO);
 
 typedef struct ParmRec_ {
 	char	*name;
@@ -231,20 +257,17 @@ typedef struct ParmRec_ {
 	char	*prompt;
 	GetProc	getProc;
 	int		flags;
-} ParmRec, *Parm;
+} ParmRec;
 
 static unsigned short
-appendNVRAM(unsigned char **pnvram, Parm parm);
+appendNVRAM(NetConfigCtxt c, unsigned char **pnvram, int i_parm);
 
 static int
-readNVRAM(Parm parmList);
+readNVRAM(NetConfigCtxt c);
 
 static void
-writeNVRAM(Parm parmList);
+writeNVRAM(NetConfigCtxt c);
 
-#ifndef USE_READLINE
-static GetLine *mygl = 0;
-#endif
 
 /* NOTE: rtems_bsdnet_ifconfig(,SIOCSIFFLAGS,) does only set, but not
  *       clear bits in the flags !!
@@ -405,13 +428,14 @@ static char *tftp_prefix=0;
 static char *use_bootp="Y";
 static char *auto_delay_secs=DELAY_DEF;
 
-static int getString();
-static int getCmdline();
-static int getIpAddr();
-static int getYesNo();
-static int getNum();
+static int getString(GET_PROC_ARG_PROTO);
+static int getCmdline(GET_PROC_ARG_PROTO);
+static int getIpAddr(GET_PROC_ARG_PROTO);
+static int getYesNo(GET_PROC_ARG_PROTO);
+static int getNum(GET_PROC_ARG_PROTO);
 
 #define FILENAME_IDX 0
+#define CMD_LINE_IDX 1
 #define SERVERIP_IDX 2
 #define BOOTP_EN_IDX 15
 
@@ -569,9 +593,7 @@ cleanup:
 	return 0;
 }
 
-#ifndef USE_READLINE
-static int useHotkeys = 0;
-#else
+#ifdef USE_READLINE
 /* handle special characters; i.e. insert
  * them at the beginning of the current line
  * and accept the line.
@@ -598,28 +620,28 @@ hack_undo(int count, int k)
 #endif
 
 static void
-installHotkeys(void)
+installHotkeys(NetConfigCtxt c)
 {
 #ifdef USE_READLINE
   rl_bind_key(SPC_UP,handle_spc);
   rl_bind_key(SPC_STOP,handle_spc);
   rl_bind_key(SPC_ESC,handle_spc);
 #else
-  useHotkeys = 1;
+  c->useHotkeys = 1;
   /* clear buffer */
   getConsoleSpecialChar();
 #endif
 }
 
 static void
-uninstallHotkeys(void)
+uninstallHotkeys(NetConfigCtxt c)
 {
 #ifdef USE_READLINE
   rl_unbind_key(SPC_UP);
   rl_unbind_key(SPC_STOP);
   rl_unbind_key(SPC_ESC);
 #else
-  useHotkeys = 0;
+  c->useHotkeys = 0;
 #endif
 }
 
@@ -629,7 +651,7 @@ uninstallHotkeys(void)
  * string and pass up a NULL pointer...
  */
 static int
-prompt(char *prmpt, char *proposal, char **answer)
+prompt(NetConfigCtxt c, char *prmpt, char *proposal, char **answer)
 {
 char *nval = 0, *pr, *nl;
 int rval=0,i;
@@ -641,7 +663,7 @@ int rval=0,i;
 		while (pr<=nl)
 			fputc(*pr++, stdout);
 	}
-	nval=gl_get_line(mygl, pr, proposal, -1);
+	nval=gl_get_line(c->gl, pr, proposal, -1);
 #else
 	if (proposal) {
 	/* readline doesn't allow us to give a 'start' value
@@ -665,8 +687,28 @@ int rval=0,i;
 	 else {
 		nval = strdup(nval);
 		/* strip trailing '\n' '\r' */
-		if ( (i = strlen(nval)) > 0 && ('\r' == nval[i-1] || '\n' == nval[i-1]) )
+		if ( (i = strlen(nval)) > 0 && ('\r' == nval[i-1] || '\n' == nval[i-1] || !isprint(nval[i-1]) ) ) {
+			/* if TECLA passes along the special char, we have a much easier life
+			 * supporting "hotkeys"
+			 */
+			nval[i]  = nval[i-1]; /* preserve special character */
 			nval[i-1]='\0';
+			if (c->useHotkeys) {
+				switch (nval[i]) {
+					case SPC_STOP:	
+					case SPC_RESTORE:
+					case SPC_UP:
+#ifdef SPC_REBOOT
+					case SPC_REBOOT:
+#endif
+					case SPC_ESC:
+					case SPC_CLEAR_UNDO:
+							rval = nval[i];
+					default:
+						break;
+				}
+			}
+		}
 		if (!*nval) {
 			free(nval);
 			nval = 0;
@@ -708,8 +750,8 @@ int rval=0,i;
 		}
 #endif
 	}
-#ifndef USE_READLINE
-	if (useHotkeys) {
+#if !defined(USE_READLINE) && !defined(HAVE_PATCHED_TECLA)
+	if (c->useHotkeys) {
 		rval = getConsoleSpecialChar();
 		if (rval < 0)
 			rval = 0;
@@ -721,7 +763,7 @@ int rval=0,i;
 }
 
 static int
-getIpAddr(char *what, char **pval, int mandatory)
+getIpAddr(NetConfigCtxt c, char *what, char **pval, int mandatory)
 {
 struct	in_addr inDummy;
 char	*p, *nval=0;
@@ -750,10 +792,10 @@ int		result=0;
 	do {
 		if (mandatory<0) mandatory=0; /* retry flag */
 		/* Do they want something special ? */
-		result=prompt(p,*pval,&nval);
+		result=prompt(c,p,*pval,&nval);
 		if (nval) {
 			if (!inet_aton(nval,&inDummy)) {
-				fprintf(stderr,"Invalid address, try again\n");
+				fprintf(c->err,"Invalid address, try again\n");
 				free(nval); nval=0;
 				result = 0;
 				if (!mandatory)
@@ -779,7 +821,7 @@ int		result=0;
 }
 
 static int
-getYesNo(char *what, char **pval, int mandatory)
+getYesNo(NetConfigCtxt c, char *what, char **pval, int mandatory)
 {
 char *nval=0,*chpt;
 int  result=0;
@@ -787,7 +829,7 @@ int  result=0;
 	do {
 		if (mandatory<0) mandatory=0; /* retry flag */
 		/* Do they want something special ? */
-		result=prompt(what,*pval,&nval);
+		result=prompt(c,what,*pval,&nval);
 		if (nval) {
 			switch (*nval) {
 				case 'Y':
@@ -805,7 +847,7 @@ int  result=0;
 						}
 						/* unacceptable, fall thru */
 
-				default:fprintf(stderr,"What ??\n");
+				default:fprintf(c->err,"What ??\n");
 						if (!mandatory) mandatory=-1;
 						/* fall thru */
 				case 0:	free(nval); nval=0;
@@ -821,7 +863,7 @@ int  result=0;
 }
 
 static int
-getNum(char *what, char **pval, int mandatory)
+getNum(NetConfigCtxt c, char *what, char **pval, int mandatory)
 {
 char *nval=0;
 int  result=0;
@@ -829,13 +871,13 @@ int  result=0;
 	do {
 		if (mandatory<0) mandatory=0; /* retry flag */
 		/* Do they want something special ? */
-		result=prompt(what,*pval,&nval);
+		result=prompt(c,what,*pval,&nval);
 		if (nval) {
 			unsigned long	tst;
 			char			*endp;
 			tst=strtoul(nval,&endp,0);
 			if (*endp) {
-				fprintf(stderr,"Not a valid number - try again\n");
+				fprintf(c->err,"Not a valid number - try again\n");
 				free(nval); nval=0;
 				if (!mandatory) mandatory=-1;
 				result = 0;
@@ -850,14 +892,14 @@ int  result=0;
 }
 
 static int
-getString(char *what, char **pval, int mandatory)
+getString(NetConfigCtxt c, char *what, char **pval, int mandatory)
 {
 char *nval=0;
 int  result=0;
 
 	do {
 		/* Do they want something special ? */
-		result=prompt(what,*pval,&nval);
+		result=prompt(c,what,*pval,&nval);
 	} while (!result && !nval && mandatory);
 	if (nval || !result) {
 		/* may also be a legal empty string */
@@ -867,15 +909,15 @@ int  result=0;
 }
 
 static int
-getCmdline(char *what, char **pval, int mandatory)
+getCmdline(NetConfigCtxt c, char *what, char **pval, int mandatory)
 {
 char *old=0;
 int  retry = 1, result=0;
 
 	while (retry-- && !result) {
-		old = strdup(*pval);
+		old = *pval ? strdup(*pval) : 0;
 		/* old value is released by getString */
-		result=getString(what, pval, 0);
+		result=getString(c, what, pval, 0);
 		if (*pval) {
 			/* if they gave a special answer, the old value is restored */
 			int i;
@@ -883,11 +925,11 @@ int  retry = 1, result=0;
 				free(*pval);
 				*pval=0;
 			} else {
-			for (i=0; parmList[i].name; i++) {
-				if (parmList[i].flags & FLAG_NOUSE)
+			for (i=0; c->parmList[i].name; i++) {
+				if (c->parmList[i].flags & FLAG_NOUSE)
 					continue; /* this name is not used */
-				if (strstr(*pval,parmList[i].name)) {
-					fprintf(stderr,"must not contain '%s' - this name is private for the bootloader\n",parmList[i].name);
+				if (strstr(*pval,c->parmList[i].name)) {
+					fprintf(c->err,"must not contain '%s' - this name is private for the bootloader\n",c->parmList[i].name);
 					retry=1;
 					/* restore old value */
 					free(*pval); *pval=old;
@@ -904,9 +946,10 @@ int  retry = 1, result=0;
 
 /* clear the history and call a get proc */
 static int
-callGet(GetProc p, char *prompt, char **ppval, int mandatory, int repeat)
+callGet(NetConfigCtxt c, int idx, int repeat)
 {
 int rval;
+Parm p = &c->parmList[idx];
 #ifdef USE_READLINE
 	clear_history();
 #endif
@@ -914,7 +957,7 @@ int rval;
 #ifdef USE_READLINE
 		if (*ppval && **ppval) add_history(*ppval);
 #endif
-	} while ((rval=p(prompt,ppval,mandatory)) && repeat);
+	} while ((rval=p->getProc(c,p->prompt,c->parmBufps[idx],p->flags & FLAG_MAND)) && repeat);
 	return rval;
 }
 
@@ -928,32 +971,35 @@ help(void)
 	printf("Press '@' for continuing the netboot (DHCP flag from NVRAM)\n");
 	printf("Press 'd' for continuing the netboot; enforce using DHCP\n");
 	printf("Press 'm' for continuing the netboot; enforce using NVRAM config\n");
+#ifdef SPC_REBOOT
 	printf("Press 'R' to reboot now (you can always hit <Ctrl>-%c to reboot)\n",SPC2CHR(SPC_REBOOT));
+#endif
 	printf("Press any other key for this message\n");
 }
 
 static int
-showConfig(int doReadNvram)
+showConfig(NetConfigCtxt c, int doReadNvram)
 {
 Parm p;
-    if (doReadNvram && !readNVRAM(parmList)) {
-		fprintf(stderr,"\nWARNING: no valid NVRAM configuration found\n");
+int  i;
+    if (doReadNvram && !readNVRAM(c)) {
+		fprintf(c->out,"\nWARNING: no valid NVRAM configuration found\n");
 	} else {
-		fprintf(stderr,"\n%s configuration:\n\n",
+		fprintf(c->out,"\n%s configuration:\n\n",
 				doReadNvram ? "NVRAM" : "Actual");
-		for (p=parmList; p->name; p++) {
+		for (p=c->parmList, i=0; p->name; p++,i++) {
 			char *chpt;
-			fputs("  ",stderr);
+			fputs("  ",c->out);
 			for (chpt=p->prompt; *chpt; chpt++) {
-				fputc(*chpt,stderr);
+				fputc(*chpt,c->out);
 				if ('\n'==*chpt)
-					fputs("  ",stderr); /* indent */
+					fputs("  ",c->out); /* indent */
 			}
-			if (*p->pval)
-				fputs(*p->pval,stderr);
-			fputc('\n',stderr);
+			if (*c->parmBufps[i])
+				fputs(*c->parmBufps[i],c->out);
+			fputc('\n',c->out);
 		}
-		fputc('\n',stderr);
+		fputc('\n',c->out);
 	}
 	return -1; /* continue looping */
 }
@@ -961,43 +1007,41 @@ Parm p;
 
 
 static int
-config(int howmany)
+config(NetConfigCtxt c, int howmany)
 {
 int  i=0;
 Parm p;
 
-	fprintf(stderr,"Changing NVRAM configuration\n");
-	fprintf(stderr,"Use '<Ctrl>-%c' to go up to previous field\n",
+	fprintf(c->out,"Changing NVRAM configuration\n");
+	fprintf(c->out,"Use '<Ctrl>-%c' to go up to previous field\n",
 				SPC2CHR(SPC_UP));
-	fprintf(stderr,"Use '<Ctrl>-%c' to restore this field\n",
+	fprintf(c->out,"Use '<Ctrl>-%c' to restore this field\n",
 				SPC2CHR(SPC_RESTORE));
-	fprintf(stderr,"Use '<Ctrl>-%c' to quit+write NVRAM\n",
+	fprintf(c->out,"Use '<Ctrl>-%c' to quit+write NVRAM\n",
 				SPC2CHR(SPC_STOP));
-	fprintf(stderr,"Use '<Ctrl>-%c' to quit+cancel (all values are restored)\n",
+	fprintf(c->out,"Use '<Ctrl>-%c' to quit+cancel (all values are restored)\n",
 				SPC2CHR(SPC_ESC));
-	fprintf(stderr,"Use '<Ctrl>-%c' to reboot\n",
+#ifdef SPC_REBOOT
+	fprintf(c->out,"Use '<Ctrl>-%c' to reboot\n",
 				SPC2CHR(SPC_REBOOT));
+#endif
 
 if	(howmany<1)
 	howmany=1;
-else if	(howmany > sizeof(parmList)/sizeof(parmList[0]) - 1)
-	howmany = sizeof(parmList)/sizeof(parmList[0]) - 1;
+else if	(howmany > c->nParms )
+	howmany = c->nParms ;
 
-installHotkeys();
+installHotkeys(c);
 
 while ( i>=0 && i<howmany ) {
-	switch (callGet(parmList[i].getProc,
-					parmList[i].prompt,
-					parmList[i].pval,
-					parmList[i].flags&FLAG_MAND,
-					0 /* dont repeat */)) {
+	switch ( callGet(c, i, 0 /* dont repeat */) ) {
 
 		case SPC_ESC:
-			fprintf(stderr,"Restoring previous configuration\n");
-			if (readNVRAM(parmList))
+			fprintf(c->out,"Restoring previous configuration\n");
+			if (readNVRAM(c))
 				return -1;
 			else {
-				fprintf(stderr,"Unable to restore configuration, please start over\n");
+				fprintf(c->out,"Unable to restore configuration, please start over\n");
 			}
 			i=0;
 		break;
@@ -1018,18 +1062,14 @@ while ( i>=0 && i<howmany ) {
 	}
 }
 
-uninstallHotkeys();
+uninstallHotkeys(c);
 
 /* make sure we have all mandatory parameters */
-for (p=parmList; p->name; p++) {
+for (p=c->parmList,i=0; p->name; p++,i++) {
 	if ( (p->flags&FLAG_MAND) ) {
-		while ( !*p->pval) {
-			fprintf(stderr,"Need parameter...\n");
-			callGet(p->getProc,
-					p->prompt,
-					p->pval,
-					FLAG_MAND,
-					0);
+		while ( !*c->parmBufps[i] ) {
+			fprintf(c->out,"Need parameter...\n");
+			callGet(c, i, 0);
 		}
 	}
 }
@@ -1047,14 +1087,14 @@ unsigned long d,min,max;
 			if (*auto_delay_secs && !*endp) {
 				/* valid */
 				if (d<min) {
-					fprintf(stderr,"Delay too short - using %ss\n",DELAY_MIN);
+					fprintf(c->out,"Delay too short - using %ss\n",DELAY_MIN);
 					override=DELAY_MIN;
 				} else if (d>max) {
-					fprintf(stderr,"Delay too long - using %ss\n",DELAY_MAX);
+					fprintf(c->out,"Delay too long - using %ss\n",DELAY_MAX);
 					override=DELAY_MAX;
 				}
 			} else {
-				fprintf(stderr,"Invalid delay - using default: %ss\n",DELAY_DEF);
+				fprintf(c->out,"Invalid delay - using default: %ss\n",DELAY_DEF);
 				override=DELAY_DEF;
 			}
 	} else {
@@ -1067,23 +1107,22 @@ unsigned long d,min,max;
 }
 
 /* write to NVRAM */
-writeNVRAM(parmList);
+writeNVRAM(c);
 
 return -1;	/* continue looping */
 }
 
 static unsigned short
-appendNVRAM(unsigned char **pnvram, Parm parm)
+appendNVRAM(NetConfigCtxt c, unsigned char **pnvram, int i_parm)
 {
 unsigned char *src, *dst;
 unsigned short sum;
 unsigned char *jobs[3], **job;
 
-	if (!*parm->pval)
-		return 0;
 
-	jobs[0]=parm->name;
-	jobs[1]=*parm->pval;
+	jobs[0]=c->parmList[i_parm].name;
+	if ( ! (jobs[1]=*c->parmBufps[i_parm]) )
+		return 0;
 	jobs[2]=0;
 
 	sum=0;
@@ -1095,7 +1134,7 @@ unsigned char *jobs[3], **job;
 		}
 
 		if (*src) {
-			fprintf(stderr,"WARNING: NVRAM overflow - not enough space\n");
+			fprintf(c->err,"WARNING: NVRAM overflow - not enough space\n");
 			**pnvram=0;
 			return 0;
 		}
@@ -1107,15 +1146,16 @@ unsigned char *jobs[3], **job;
 }
 
 static void
-writeNVRAM(Parm parmList)
+writeNVRAM(NetConfigCtxt c)
 {
 unsigned char	*nvchpt=NVRAM_STR_START;
 unsigned short	sum;
 Parm			p;
+int				i;
 
 		sum = 0;
-		for (p=parmList; p->name; p++) {
-			sum += appendNVRAM(&nvchpt, p);
+		for (p=c->parmList, i=0; p->name; p++,i++) {
+			sum += appendNVRAM(c, &nvchpt, i);
 			*nvchpt=0;
 		}
 		/* tag the end - there is space for the terminating '\0', it's safe */
@@ -1126,15 +1166,16 @@ Parm			p;
 		sum += (*--nvchpt=((NVRAM_SIGN>>8) & 0xff));
 		*--nvchpt=sum&0xff;
 		*--nvchpt=((sum>>8)&0xff);
-		fprintf(stderr,"\nNVRAM configuration updated\n");
+		fprintf(c->out,"\nNVRAM configuration updated\n");
 }
 
 static int
-readNVRAM(Parm parmList)
+readNVRAM(NetConfigCtxt c)
 {
 unsigned short	sum,tag;
 unsigned char	*nvchpt=NVRAM_START, *str, *pch, *end;
 Parm			p;
+int				i;
 
 	sum=(*nvchpt++)<<8;
 	sum+=(*nvchpt++);
@@ -1143,7 +1184,9 @@ Parm			p;
 	tag= (tag<<8) | *nvchpt;
 	sum+=*nvchpt++;
 	if (tag != NVRAM_SIGN) {
-			fprintf(stderr,"No NVRAM signature found\n");
+			fprintf(c->err,"No NVRAM signature found; compiled for: 0x%04x; found: 0x%04x\n",
+							NVRAM_SIGN,
+							tag);
 			return 0;
 	}
 	str=nvchpt;
@@ -1152,11 +1195,11 @@ Parm			p;
 			sum+=*nvchpt++;
 
 	if (*nvchpt) {
-			fprintf(stderr,"No end of string found in NVRAM\n");
+			fprintf(c->err,"No end of string found in NVRAM\n");
 			return 0;
 	}
 	if (sum) {
-			fprintf(stderr,"NVRAM checksum error\n");
+			fprintf(c->err,"NVRAM checksum error\n");
 			return 0;
 	}
 	/* OK, we found a valid string */
@@ -1177,13 +1220,13 @@ Parm			p;
 					*end++=0; /* tag */
 
 			/* a valid parameter found */
-			for (p=parmList; p->name; p++) {
+			for (p=c->parmList,i=0; p->name; p++, i++) {
 				if (strncmp(pch, p->name, val-pch))
 				continue;
 					/* found the parameter */
-					free(*p->pval);
-					*p->pval=strdup(val);
-				break; /* for p=parmList */
+					free(*c->parmBufps[i]);
+					*c->parmBufps[i] = strdup(val);
+				break; /* for p=c->parmList */
 			}
 		}
 	}
@@ -1209,6 +1252,23 @@ rtems_task Init(
   extern struct in_addr rtems_bsdnet_bootp_server_address;
   extern char           *rtems_bsdnet_bootp_boot_file_name;
   Parm	p;
+  int	i;
+  NetConfigCtxtRec	ctx = {0};
+
+  /* copy static pointers into local buffer pointer array
+   * (pointers in the ParmRec struct initializers are easier to maintain
+   * but we want the 'config/showConfig' routines to be re-entrant
+   * so they can be used by a full-blown system outside of 'netboot')
+   */
+
+  	ctx.nParms = (sizeof(parmList) / sizeof(parmList[0])) - 1;
+    ctx.parmBufps = malloc( sizeof(*ctx.parmBufps) * ctx.nParms ); 
+	ctx.err    = stderr;
+	ctx.out    = stdout;
+    for (i=0; parmList[i].name; i++) {
+		ctx.parmBufps[i] = parmList[i].pval;
+	}
+	ctx.parmList = parmList;
 
 	fn = tmp = malloc(500);
 
@@ -1227,7 +1287,7 @@ rtems_task Init(
 #else
 	ansiTiocGwinszInstall(7);
 	/* no history */
-	mygl = new_GetLine(500,0);
+	ctx.gl = new_GetLine(500,0);
 
 	fn += sprintf(fn,"bind ^%c newline\n",SPC2CHR(SPC_STOP));
 	addConsoleSpecialChar(SPC_STOP);
@@ -1238,7 +1298,7 @@ rtems_task Init(
    	fn += sprintf(fn,"bind ^%c newline\n",SPC2CHR(SPC_ESC));
 	addConsoleSpecialChar(SPC_ESC);
 
-	gl_configure_getline(mygl, tmp, 0, 0);
+	gl_configure_getline(ctx.gl, tmp, 0, 0);
 #endif
 
 	free(tmp); tmp = 0;
@@ -1258,9 +1318,9 @@ rtems_task Init(
 	fprintf(stderr,"\n\nRTEMS bootloader by Till Straumann <strauman@slac.stanford.edu>\n");
 	fprintf(stderr,"$Id$\n");
 
-	if (!readNVRAM(parmList)) {
+	if (!readNVRAM(&ctx)) {
 		fprintf(stderr,"No valid NVRAM settings found - initializing\n");
-		writeNVRAM(parmList);
+		writeNVRAM(&ctx);
 	}
 
 
@@ -1311,8 +1371,8 @@ rtems_task Init(
 						do {
 							fputc('\n',stderr);
 							switch (ch) {
-								case 's':	manual=showConfig(1);		break;
-								case 'c':	manual=config(1000);		break;
+								case 's':	manual=showConfig(&ctx, 1);	break;
+								case 'c':	manual=config(&ctx, 1000);	break;
 								case 'b':	manual=1;					break;
 								case '@':	manual=0;					break;
 								case 'd':	manual=0; enforceBootp=1;	break;
@@ -1359,11 +1419,11 @@ rtems_task Init(
 				/* clear the 'bsdnet' fields - it seems that the bootp subsystem
 				 * expects NULL pointers...
 				 */
-				for (p=parmList; p->name; p++) {
+				for (p=ctx.parmList, i=0; p->name; p++, i++) {
 					if ( !(p->flags & FLAG_CLRBP) )
 						continue;
-					free(*p->pval);
-					*p->pval=0;
+					free(*ctx.parmBufps[i]);
+					*ctx.parmBufps[i] = 0;
 				}
 
 			}
@@ -1391,11 +1451,7 @@ rtems_task Init(
 		if (manual>0  || !filename) {
 			if (!manual)
 				fprintf(stderr,"Didn't get a filename from DHCP server\n");
-			callGet(getString,
-					"Enter filename (maybe ~user to specify rsh user):",
-					&filename,
-					FLAG_MAND,
-					1 /* loop until valid answer */);
+			callGet(&ctx, FILENAME_IDX, 1 /* loop until valid answer */);
 		}
 		fn=filename;
 
@@ -1421,7 +1477,7 @@ rtems_task Init(
 				if (!srvname)
 					fprintf(stderr,"Unable to convert server address to name\n");
 
-				callGet(getIpAddr,"Server address: ",&srvname,FLAG_MAND,1/*loop until valid*/);
+				callGet(&ctx, SERVERIP_IDX, 1/*loop until valid*/);
 			}
 
 			/* cat filename to command */
@@ -1476,7 +1532,7 @@ rtems_task Init(
 			errfd=-1;
 		}
 		if (manual>0) {
-			callGet(getCmdline,"Command line parameters:",&bootparms,0,0);
+			callGet(&ctx, CMD_LINE_IDX, 0);
 		} /* else cmdline==0 [init] */
 
 		/* assemble command line */
@@ -1519,7 +1575,7 @@ rtems_task Init(
 				bootparms = quoted = strdup("''");
 			}
 
-			p=parmList;
+			p=ctx.parmList; i = 0;
 
 			len = 0;
 
@@ -1531,11 +1587,11 @@ rtems_task Init(
 			else
 				end = p;
 
-			for (; p<end && p->name; p++) {
+			for (; p<end && p->name; p++, i++) {
 				char *v;
 				int		incr;
 
-				v = *p->pval;	
+				v = *ctx.parmBufps[i];
 
 				/* unused or empty parameter */
 				if (p->flags&FLAG_NOUSE || !v) continue;
