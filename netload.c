@@ -14,10 +14,12 @@
 #include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <assert.h>
 
 #include <rtems.h>
 #include <rtems/error.h>
 #include <rtems/rtems_bsdnet.h>
+
 
 #include <sys/socket.h>
 #include <sys/sockio.h>
@@ -43,6 +45,8 @@
 #define DELAY_MAX "30"
 #define DELAY_DEF "2"
 
+#define CTRL_C		3	/* ASCII for Ctrl-C */
+
 /* special answers */
 #define SPC_STOP 1
 #define SPC_UP   2
@@ -58,6 +62,9 @@
 #include <readline/history.h>
 
 #include <termios.h>
+#include <rtems/termiostypes.h>
+
+#define HACKDISC 5	/* our dummy line discipline */
 
 /* this is not declared anywhere */
 int
@@ -224,19 +231,6 @@ readNVRAM(Parm parmList);
 
 static void
 writeNVRAM(Parm parmList);
-
-static int
-shallIreboot(int a1, int a2)
-{
-char ch='N';
-fprintf(stderr,"\nDo you really want to reboot?");
-read(0,&ch,1);
-if ('Y'==toupper(ch))
-	rtemsReboot();
-else
-	fprintf(stderr," - NO\n");
-return 0;
-}
 
 /* NOTE: rtems_bsdnet_ifconfig(,SIOCSIFFLAGS,) does only set, but not
  *       clear bits in the flags !!
@@ -474,7 +468,7 @@ static ParmRec parmList[]={
 			getIpAddr,		FLAG_CLRBP,
 	},
 	{ "BP_ENBL=",  &use_bootp,
-			"Use bootp:                          [Y/N] >",
+			"Use DHCP:                           [Y/N] >",
 			getYesNo,		0,
 	},
 	{ "BP_DELY=",  &auto_delay_secs,
@@ -485,6 +479,37 @@ static ParmRec parmList[]={
 	},
 	{ 0, }
 };
+
+/* ugly hack to get an rtems_termios_tty handle */
+/* hack into termios - THIS ROUTINE RUNS IN INTERRUPT CONTEXT */
+static
+void incharIntercept(struct termios *t, void *arg)
+{
+/* Note that struct termios is not struct rtems_termios_tty */ 
+struct rtems_termios_tty *tty = (struct rtems_termios_tty*)arg;
+	/* did they just press Ctrl-C? */
+	if (CTRL_C == tty->rawInBuf.theBuf[tty->rawInBuf.Tail]) {
+			/* OK, we shouldn't call anything from IRQ context,
+			 * but for reboot - who cares...
+			 */
+			rtemsReboot();
+	}
+}
+
+static struct ttywakeup ctrlCIntercept = {
+		incharIntercept,
+		0
+};
+
+static int
+openToGetHandle(struct rtems_termios_tty *tp)
+{
+		ctrlCIntercept.sw_arg = (void*)tp;
+		return 0;
+}
+
+/* we need a dummy line discipline for retrieving an rtems_termios_tty handle :-( */
+static struct linesw dummy_ldisc = { openToGetHandle,0,0,0,0,0,0,0 };
 
 
 static char *
@@ -793,22 +818,25 @@ static void
 help(void)
 {
 	printf("\n");
+	printf("Press 's' for showing the current NVRAM configuration\n");
 	printf("Press 'c' for changing your NVRAM configuration\n");
 	printf("Press 'b' for manually entering filename/cmdline parameters only\n");
-	printf("Press '@' for continuing the netboot\n");
-	printf("Press 's' for showing the current NVRAM configuration\n");
+	printf("Press '@' for continuing the netboot (DHCP flag from NVRAM)\n");
+	printf("Press 'd' for continuing the netboot; enforce using DHCP\n");
+	printf("Press 'm' for continuing the netboot; enforce using NVRAM config\n");
 	printf("Press 'R' to reboot now (you can always hit <Ctrl>-C to reboot)\n");
 	printf("Press any other key for this message\n");
 }
 
 static int
-showConfig(void)
+showConfig(int doReadNvram)
 {
 Parm p;
-    if (!readNVRAM(parmList)) {
+    if (doReadNvram && !readNVRAM(parmList)) {
 		fprintf(stderr,"\nWARNING: no valid NVRAM configuration found\n");
 	} else {
-		fprintf(stderr,"\nNVRAM configuration:\n\n");
+		fprintf(stderr,"\n%s configuration:\n\n",
+				doReadNvram ? "NVRAM" : "Actual");
 		for (p=parmList; p->name; p++) {
 			char *chpt;
 			fputs("  ",stderr);
@@ -1051,6 +1079,7 @@ rtems_task Init(
 
   int tftpInited=0;
   int manual=0;
+  int enforceBootp=0;
 
   char *cmd=0, *fn;
   char *username;
@@ -1065,9 +1094,6 @@ rtems_task Init(
 	use_bootp=strdup(use_bootp);
 	auto_delay_secs=strdup(auto_delay_secs);
 
-	/* bind the reset routine to <Ctrl>-C (ascii 3) */
-	rl_bind_key(3,shallIreboot);
-
 #define SADR rtems_bsdnet_bootp_server_address
 #define BOFN rtems_bsdnet_bootp_boot_file_name
 
@@ -1080,6 +1106,7 @@ rtems_task Init(
 		fprintf(stderr,"No valid NVRAM settings found - initializing\n");
 		writeNVRAM(parmList);
 	}
+
 
 	/* give them a chance to abort the netboot */
 	{
@@ -1128,11 +1155,13 @@ rtems_task Init(
 						do {
 							fputc('\n',stderr);
 							switch (ch) {
-								case 's':	manual=showConfig();break;
+								case 's':	manual=showConfig(1);break;
 								case 'c':	manual=config(1000);break;
 								case 'b':	manual=1;			break;
 								case '@':	manual=0;			break;
-								case  3 :   /* <Ctrl>-C */
+								case 'd':	manual=0; enforceBootp=1; break;
+								case 'm':	manual=0; enforceBootp=-1; break;
+								case CTRL_C:
 								case 'R':	rtemsReboot(); /* never get here */
 								default: 	manual=-1;
 											break;
@@ -1142,6 +1171,7 @@ rtems_task Init(
 						} while (-1==manual && 1==read(0,&ch,1));
 					}
 				}
+				/* reset terminal attributes */
 				tcsetattr(0,TCSANOW,&ot);
 			}
 		}
@@ -1153,9 +1183,37 @@ rtems_task Init(
 		yellowfin_debug=0;
 	}
 
+	/* now install our 'Ctrl-C' hack, so they can abort anytime while
+	 * network lookup and/or loading is going on...
+	 */
+	{
+			int	d=HACKDISC,o;
+			linesw[d]=dummy_ldisc;
+			/* just by installing the line discipline, the
+			 * rtems_termios_tty pointer gets 'magically' installed into the
+			 * ttywakeup struct...
+			 *
+			 * Start with retrieving the original ldisc...
+			 */
+			assert(0==ioctl(0,TIOCGETD,&o));
+			assert(0==ioctl(0,TIOCSETD,&d));
+			/* make sure we got a rtems_termios_tty pointer */
+			assert(ctrlCIntercept.sw_arg);
+			/* for some reason, it seems that we must reinstall the original discipline
+			 * otherwise, the system seems to freeze further down the line (during/after
+			 * network init)
+			 */
+			assert(0==ioctl(0,TIOCSETD,&o));
+
+			/* finally install our handler */
+			assert(0==ioctl(0,RTEMS_IO_RCVWAKEUP,&ctrlCIntercept));
+	}
+
 	{
 			/* check if they want us to use bootp or not */
-			if (*use_bootp && 'N' == toupper(*use_bootp)) {
+			if (!enforceBootp)
+				enforceBootp = (*use_bootp && 'N' == toupper(*use_bootp)) ? -1 : 1; 
+			if (enforceBootp<0) {
 				rtems_bsdnet_config.bootp = 0;
 				if (!manual) manual = -2;
 
@@ -1313,7 +1371,7 @@ rtems_task Init(
 		fprintf(stderr,"Hello, this is the RTEMS remote loader; trying to load '%s'\n",
 						filename);
 
-#ifdef DEBUG
+#if defined(DEBUG)
 		fprintf(stderr,"Appending Commandline:\n");
 		fprintf(stderr,"'%s'\n",cmdline ? cmdline : "<EMPTY>");
 #endif
