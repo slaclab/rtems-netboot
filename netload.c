@@ -1318,6 +1318,8 @@ rtems_task Init(
 			/* check if they want us to use bootp or not */
 			if (!enforceBootp)
 				enforceBootp = ((*use_bootp && 'N' == toupper(*use_bootp)) ? -1 : 1); 
+			else
+				sprintf(use_bootp, enforceBootp>0 ? "Y" : "N");
 			if (enforceBootp<0) {
 				rtems_bsdnet_config.bootp = 0;
 				if (!manual) manual = -2;
