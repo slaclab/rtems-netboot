@@ -759,8 +759,10 @@ int		rval = -1;
 		case 'P':	max = SERVERIP_IDX + 1; break;
 		case 'D':	max = 0;                break;
 		case 'M':	max = NUM_PARMS + 1;    break;
-		case 'B':	min = SERVERIP_IDX + 1;
-					max = NUM_PARMS + 1;
+		case 'B':	if ( 'N' == mode ) {
+						min = SERVERIP_IDX + 1;
+						max = NUM_PARMS + 1;
+					}
 					/* fall thru */
 		default:	break;
 		
