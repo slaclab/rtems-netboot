@@ -25,7 +25,7 @@ S_O_FILES=$(S_FILES:%.S=${ARCH}/%.o)
 SRCS=$(C_FILES) $(CC_FILES) $(H_FILES) $(S_FILES)
 OBJS=$(C_O_FILES) $(CC_O_FILES) $(S_O_FILES)
 
-PGMS=${ARCH}/rshtst
+PGMS=${ARCH}/netload
 
 # List of RTEMS managers to be included in the application goes here.
 # Use:
@@ -71,7 +71,7 @@ CLOBBER_ADDITIONS +=
 
 all:	${ARCH} $(SRCS) $(PGMS)
 
-${ARCH}/rshtst: ${OBJS} ${LINK_FILES}
+${ARCH}/netload: ${OBJS} ${LINK_FILES}
 	$(make-exe)
 
 # Install the program(s), appending _g or _p as appropriate.
