@@ -26,7 +26,7 @@ When started, the loader tries to get the
   - VGM hostname
   - log server address
   - boot file name
-either using the DHCP protocol or from NVRAM (which option
+either using the BOOTP protocol or from NVRAM (which option
 to use by default is also NVRAM configurable).
 
 It then tries to download the 'boot file' from the
@@ -40,7 +40,7 @@ loader to issue a
 	rsh -l <user> cat <file>
 
 command for downloading the image. <user> and <filename>
-are extracted from the DHCP 'filename' answer:
+are extracted from the BOOTP 'filename' answer:
 
     '~' <user> '/' <file>
 
@@ -53,7 +53,7 @@ TFTP filesystem will be used for downloading the
 image. If the filename has no initial "/TFTP"
 prefix, "/TFTP/BOOTP_HOST" will be used, instructing
 the loader to connect to the server whose address
-was obtained using DHCP. Alternatively, a 'dot'
+was obtained using BOOTP. Alternatively, a 'dot'
 notation IP address may denote the TFTP server:
 
 	'/TFTP/999.99.99.99/imagefile'
@@ -72,7 +72,22 @@ The loader now also supports using manually configured
 IP addresses etc. which it stores in NVRAM. A programmable
 flag (also a NVRAM configuration setting) determines whether
 to use the manual/NVRAM configuration or to obtain
-a configuration via DHCP.
+a configuration via BOOTP. The "Use BOOTP" flag supports
+three settings: 'N', 'Y' and 'P':
+ 'N': do not use BOOTP; obtain all settings from NVRAM.
+ 'Y': do not use NVRAM for settings other than the 'Use BOOTP flag'
+      and the 'Autoboot delay' but use BOOTP.
+ 'P': do BOOTP to get all networking parameters but use
+      the 'filename' and 'commandline' stored in NVRAM. This
+      is handy on development platforms.
+
+The NVRAM setting of the 'Use BOOTP' flag can be overridden
+at run-time by hitting the 'm', 'd', and 'p' keys which
+enforce the behavior described under 'N', 'Y' and 'P',
+respectively. (In some cases, booting may be refused because
+of missing NVRAM parameters. It is not possible, for example
+to override 'Y' with the 'm' key if there are IP configuration
+parameters missing in NVRAM.)
 
 NOTE: The loader maintains its own IP configuration in NVRAM
 (manual option) which is independent from the SMON 'config'.

@@ -299,7 +299,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #else
 			strbuf + 15,
 #endif
-			"Use DHCP: Yes, No or Partial (--> file and\n"
+			"Use BOOTP: Yes, No or Partial (-> file and\n"
             "          command line from NVRAM) [Y/N/P]>",
 			getUseBootp,	FLAG_DUP | FLAG_BOOTP,
 	},

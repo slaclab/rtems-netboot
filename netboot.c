@@ -458,9 +458,9 @@ help(void)
 	printf("Press 's' for showing the current NVRAM configuration\n");
 	printf("Press 'c' for changing your NVRAM configuration\n");
 	printf("Press 'b' for manually entering filename/cmdline parameters only\n");
-	printf("Press '@' for continuing the netboot (DHCP flag from NVRAM)\n");
-	printf("Press 'd' for continuing the netboot; enforce using DHCP\n");
-	printf("Press 'p' for continuing the netboot; enforce using DHCP\n"
+	printf("Press '@' for continuing the netboot (BOOTP flag from NVRAM)\n");
+	printf("Press 'd' for continuing the netboot; enforce using BOOTP\n");
+	printf("Press 'p' for continuing the netboot; enforce using BOOTP\n"
            "          but use file and cmdline from NVRAM\n");
 	printf("Press 'm' for continuing the netboot; enforce using NVRAM config\n");
 #ifdef SPC_REBOOT
@@ -663,7 +663,7 @@ rtems_task Init(
 	for (;1;manual=1) {
 		if (manual>0  || !filename) {
 			if (!manual)
-				fprintf(stderr,"Didn't get a filename from DHCP server\n");
+				fprintf(stderr,"Didn't get a filename from BOOTP server\n");
 			callGet(&ctx, FILENAME_IDX, 1 /* loop until valid answer */);
 		}
 		fn=filename;
