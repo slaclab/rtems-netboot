@@ -17,13 +17,6 @@ SECTIONS {
 	.text FLASHSTART : {
 		*(.text)
 	} > CODE
-	/* compressed 'netload' image appended here */
-	__zimage_start = . ;
-	.zimage : {
-		*.img.gz(*)
-	} > CODE
-	__zimage_end = . ;
-
 	__zl_etext = ALIGN ( 4 );
 
 	/* gunzip expects data in ram, static data
@@ -32,17 +25,25 @@ SECTIONS {
 	 */
 	.data DEST + __rtems_end - __rtems_start : AT( __zl_etext ) {
 	__zl_data_start = . ;
-		*(.sdata)
-		*(.rodata)
-		*(.data)
-		*(.sdata2)
+		gunzip.o(.sdata)
+		gunzip.o(.rodata)
+		gunzip.o(.data)
+		gunzip.o(.sdata2)
 		. = ALIGN ( 4 );
 	} > DATA
 	__zl_bss_start = . ;
 	.bss : {
-		*(.sbss)
-		*(.bss)
+		gunzip.o(.sbss)
+		gunzip.o(.bss)
 		. = ALIGN ( 4 );
 	} > DATA
 	__zl_bss_end = . ;
+
+	/* compressed 'netload' image appended here */
+	.zimage __zl_etext + __zl_bss_start - __zl_data_start : {
+	__zimage_start = . ;
+		*.img.gz(*)
+	__zimage_end = . ;
+	} > DATA
+
 }

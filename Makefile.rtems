@@ -44,8 +44,8 @@ include $(RTEMS_ROOT)/make/leaf.cfg
 
 DEFINES  +=
 # -DUSE_SHELL
-CPPFLAGS +=
-CFLAGS   += -I/usr/local/rtems/powerpc-rtems/include -I. $(DEBUG) -O
+CPPFLAGS += -I$(exec_prefix)/include -I.
+CFLAGS += $(DEBUG)
 
 #
 # CFLAGS_DEBUG_V are used when the `make debug' target is built.
@@ -54,10 +54,10 @@ CFLAGS   += -I/usr/local/rtems/powerpc-rtems/include -I. $(DEBUG) -O
 # CFLAGS_DEBUG_V += -qrtems_debug
 #
 
-LD_PATHS  +=
+LD_PATHS  += $(exec_prefix)/lib
 #LD_LIBS   += -lcexp -lelf -lreadline -ltermcap -lregexp
 LD_LIBS   += -lreadline -ltermcap
-LDFLAGS   += -L/usr/local/rtems/powerpc-rtems/lib -Wl,-Map,map
+#LDFLAGS   += -L/usr/local/rtems/powerpc-rtems/lib -Wl,-Map,map
 
 #
 # Add your list of files to delete here.  The config files
@@ -73,6 +73,9 @@ all:	${ARCH} $(SRCS) $(PGMS)
 
 ${ARCH}/netboot: ${OBJS} ${LINK_FILES}
 	$(make-exe)
+
+ballah:
+	echo $(PROJECT_RELEASE)
 
 # Install the program(s), appending _g or _p as appropriate.
 # for include files, just use $(INSTALL_CHANGE)

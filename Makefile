@@ -1,10 +1,10 @@
 # REAL VALUES (for use in flash)
-FLASHSTART=0xfff80000
-DEST=0
+#FLASHSTART=0xfff80000
+#DEST=0
 
 # DEBUGGING VALUES (make clean; make when changing these)
-#FLASHSTART=0x400000
-#DEST=0x10000
+FLASHSTART=0x400000
+DEST=0x10000
 
 # Use a destination address > 0, e.g. 0x10000
 # for debugging. In this case, the image will
@@ -52,11 +52,15 @@ PROGELF=o-optimize/netboot
 # must still terminate in ".bin"
 IMGEXT=flashimg.bin
 TMPNAM=tmp
-MAKEFILE=makefile
+MAKEFILE=Makefile
 
-CC=$(CROSS_COMPILE)gcc
-LD=$(CROSS_COMPILE)ld
-OBJCOPY=$(CROSS_COMPILE)objcopy
+include $(RTEMS_MAKEFILE_PATH)/Makefile.inc
+include $(RTEMS_CUSTOM)
+include $(CONFIG.CC)
+
+#CC=$(CROSS_COMPILE)gcc
+#LD=$(CROSS_COMPILE)ld
+#OBJCOPY=$(CROSS_COMPILE)objcopy
 
 CFLAGS=-O
 
@@ -67,7 +71,7 @@ LINKSCRIPT=gunzip.lds
 
 #
 # "--just-symbols" files must be loaded _before_ the binary images
-LINKARGS=$(LINKOBJS) --just-symbols=$(PROGELF) --defsym DEST=$(DEST) --defsym FLASHSTART=$(FLASHSTART) -b binary  $(LINKBINS) -T$(LINKSCRIPT)
+LINKARGS=--defsym DEST=$(DEST) --defsym FLASHSTART=$(FLASHSTART) -T$(LINKSCRIPT) $(LINKOBJS) --just-symbols=$(PROGELF) -b binary  $(LINKBINS) 
 
 all:	$(PROGELF).$(IMGEXT)
 
