@@ -614,8 +614,8 @@ rtems_task Init(
 				for (p=ctx.parmList, i=0; p->name; p++, i++) {
 					if ( !(p->flags & FLAG_CLRBP) )
 						continue;
-					free(*ctx.parmBufps[i]);
-					*ctx.parmBufps[i] = 0;
+					free(*ctx.parmList[i].pval);
+					*ctx.parmList[i].pval = 0;
 				}
 
 			}
@@ -783,7 +783,7 @@ rtems_task Init(
 				char *v;
 				int		incr;
 
-				v = *ctx.parmBufps[i];
+				v = *ctx.parmList[i].pval;
 
 				/* unused or empty parameter */
 				if (p->flags&FLAG_NOUSE || !v) continue;

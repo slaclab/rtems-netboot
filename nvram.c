@@ -32,8 +32,8 @@
 #ifdef LIBTECLA_ACCEPT_NONPRINTING_LINE_END
 #define getConsoleSpecialChar() do {} while (0)
 #define addConsoleSpecialChar(arg) do {} while (0)
-#else
-#include <ctrlx.h>
+#elif !defined(USE_READLINE) && !defined(__INSIDE_NETBOOT__)
+#define DISABLE_HOTKEYS
 #endif
 
 #include <bsp.h>
@@ -87,8 +87,6 @@ typedef struct NetConfigCtxtRec_ {
 	FILE	*out;
 	FILE	*err;
 	Parm	parmList;		/* descriptor list for parameters */
-	char	***parmBufps;	/* pointer array to parameter buffer pointers */
-	int		nParms;
 #ifndef USE_READLINE
 	int		useHotkeys;
 	GetLine *gl;
@@ -100,9 +98,7 @@ typedef int (*GetProc)(GET_PROC_ARG_PROTO);
 
 typedef struct ParmRec_ {
 	char	*name;
-#ifdef __INSIDE_NETBOOT__
 	char	**pval;
-#endif
 	char	*prompt;
 	GetProc	getProc;
 	int		flags;
@@ -117,6 +113,8 @@ readNVRAM(NetConfigCtxt c);
 static void
 writeNVRAM(NetConfigCtxt c);
 
+#define NUM_PARMS 17
+
 #ifdef __INSIDE_NETBOOT__
 /* all kernel commandline parameters */
 static char *cmdline=0;
@@ -130,6 +128,8 @@ static char *filename=0;
 /* flags need to strdup() these! */
 static char *use_bootp="Y";
 static char *auto_delay_secs=DELAY_DEF;
+#else
+static char *strbuf[NUM_PARMS] = {0};
 #endif
 
 static int getString(GET_PROC_ARG_PROTO);
@@ -147,10 +147,12 @@ static int getNum(GET_PROC_ARG_PROTO);
 /* The code assembling the kernel boot parameter line depends on the order
  * the parameters are listed
  */
-static ParmRec parmList[]={
+static ParmRec parmList[NUM_PARMS+1]={
 	{ "BP_FILE=",
 #ifdef __INSIDE_NETBOOT__
 		   	&filename,
+#else
+			strbuf + 0,
 #endif
 			"Boot file name (may be '~user/path' to specify rsh user):\n"
 			" >",
@@ -159,6 +161,8 @@ static ParmRec parmList[]={
 	{ "BP_PARM=",
 #ifdef __INSIDE_NETBOOT__
 		   	&bootparms,
+#else
+			strbuf + 1,
 #endif
 			"Command line parameters:\n"
 			" >",
@@ -167,6 +171,8 @@ static ParmRec parmList[]={
 	{ "BP_SRVR=",
 #ifdef __INSIDE_NETBOOT__
 			&srvname,
+#else
+			strbuf + 2,
 #endif
 			"Server IP:    >",
 			getIpAddr,		FLAG_MAND,
@@ -174,6 +180,8 @@ static ParmRec parmList[]={
 	{ "BP_GTWY=",
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.gateway,
+#else
+			strbuf + 3,
 #endif
 			"Gateway IP:   >",
 			getIpAddr,		FLAG_CLRBP, 
@@ -181,6 +189,8 @@ static ParmRec parmList[]={
 	{ "BP_MYIP=",
 #ifdef __INSIDE_NETBOOT__
 			&eth_ifcfg.ip_address,
+#else
+			strbuf + 4,
 #endif
 			"My IP:        >",
 			getIpAddr,		FLAG_MAND| FLAG_CLRBP,
@@ -188,6 +198,8 @@ static ParmRec parmList[]={
 	{ "BP_MYMK=",
 #ifdef __INSIDE_NETBOOT__
 			&eth_ifcfg.ip_netmask,
+#else
+			strbuf + 5,
 #endif
 			"My netmask:   >",
 			getIpAddr,		FLAG_MAND | FLAG_CLRBP,
@@ -195,6 +207,8 @@ static ParmRec parmList[]={
 	{ "BP_MYNM=",
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.hostname,
+#else
+			strbuf + 6,
 #endif
 			"My name:      >",
 			getString,		FLAG_CLRBP,
@@ -202,6 +216,8 @@ static ParmRec parmList[]={
 	{ "BP_MYDN=",
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.domainname,
+#else
+			strbuf + 7,
 #endif
 			"My domain:    >",
 			getString,		FLAG_CLRBP,
@@ -209,6 +225,8 @@ static ParmRec parmList[]={
 	{ "BP_LOGH=",
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.log_host,
+#else
+			strbuf + 8,
 #endif
 			"Loghost IP:   >",
 			getIpAddr,		FLAG_CLRBP,
@@ -216,6 +234,8 @@ static ParmRec parmList[]={
 	{ "BP_DNS1=",
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.name_server[0],
+#else
+			strbuf + 9,
 #endif
 			"DNS server 1: >",
 			getIpAddr,		FLAG_CLRBP,
@@ -223,6 +243,8 @@ static ParmRec parmList[]={
 	{ "BP_DNS2=",
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.name_server[1],
+#else
+			strbuf + 10,
 #endif
 			"DNS server 2: >",
 			getIpAddr,		FLAG_CLRBP,
@@ -230,6 +252,8 @@ static ParmRec parmList[]={
 	{ "BP_DNS3=",
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.name_server[2],
+#else
+			strbuf + 11,
 #endif
 			"DNS server 3: >",
 			getIpAddr,		FLAG_CLRBP,
@@ -237,6 +261,8 @@ static ParmRec parmList[]={
 	{ "BP_NTP1=",
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.ntp_server[0],
+#else
+			strbuf + 12,
 #endif
 			"NTP server 1: >",
 			getIpAddr,		FLAG_CLRBP,
@@ -244,6 +270,8 @@ static ParmRec parmList[]={
 	{ "BP_NTP2=",
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.ntp_server[1],
+#else
+			strbuf + 13,
 #endif
 			"NTP server 2: >",
 			getIpAddr,		FLAG_CLRBP,
@@ -251,6 +279,8 @@ static ParmRec parmList[]={
 	{ "BP_NTP3=",
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.ntp_server[2],
+#else
+			strbuf + 14,
 #endif
 			"NTP server 3: >",
 			getIpAddr,		FLAG_CLRBP,
@@ -258,6 +288,8 @@ static ParmRec parmList[]={
 	{ "BP_ENBL=",
 #ifdef __INSIDE_NETBOOT__
 			&use_bootp,
+#else
+			strbuf + 15,
 #endif
 			"Use DHCP:                           [Y/N] >",
 			getYesNo,		FLAG_DUP,
@@ -265,6 +297,8 @@ static ParmRec parmList[]={
 	{ "BP_DELY=",
 #ifdef __INSIDE_NETBOOT__
 			&auto_delay_secs,
+#else
+			strbuf + 16,
 #endif
 			"Autoboot Delay: ["
 					DELAY_MIN "..."
@@ -277,6 +311,8 @@ static ParmRec parmList[]={
 
 
 #ifdef USE_READLINE
+
+#ifndef DISABLE_HOTKEYS
 /* handle special characters; i.e. insert
  * them at the beginning of the current line
  * and accept the line.
@@ -287,12 +323,15 @@ handle_spc(int count, int k)
 {
 char t[2];
   t[0]=k; t[1]=0;
+#ifdef SPC_REBOOT
   if (SPC_REBOOT == k)
       rtemsReboot();
+#endif
   rl_beg_of_line(0,k);
   rl_insert_text(t);
   return rl_newline(1,k);
 }
+#endif /* DISABLE_HOTKEYS */
 
 static int
 hack_undo(int count, int k)
@@ -300,11 +339,13 @@ hack_undo(int count, int k)
   rl_free_undo_list();
   return 0;
 }
-#endif
+
+#endif /* USE_READLINE */
 
 static void
 installHotkeys(NetConfigCtxt c)
 {
+#ifndef DISABLE_HOTKEYS
 #ifdef USE_READLINE
   rl_bind_key(SPC_UP,handle_spc);
   rl_bind_key(SPC_STOP,handle_spc);
@@ -314,17 +355,20 @@ installHotkeys(NetConfigCtxt c)
   /* clear buffer */
   getConsoleSpecialChar();
 #endif
+#endif
 }
 
 static void
 uninstallHotkeys(NetConfigCtxt c)
 {
+#ifndef DISABLE_HOTKEYS
 #ifdef USE_READLINE
   rl_unbind_key(SPC_UP);
   rl_unbind_key(SPC_STOP);
   rl_unbind_key(SPC_ESC);
 #else
   c->useHotkeys = 0;
+#endif
 #endif
 }
 
@@ -435,12 +479,14 @@ int rval,i;
 		}
 #endif
 	}
+#ifndef DISABLE_HOTKEYS
 #if !defined(USE_READLINE) && !defined(LIBTECLA_ACCEPT_NONPRINTING_LINE_END)
 	if (c->useHotkeys) {
 		rval = getConsoleSpecialChar();
 		if (rval < 0)
 			rval = 0;
 	}
+#endif
 #endif
 	} while (SPC_RESTORE == rval);
 	*answer=nval;
@@ -642,7 +688,7 @@ Parm p = &c->parmList[idx];
 #ifdef USE_READLINE
 		if (*ppval && **ppval) add_history(*ppval);
 #endif
-	} while ((rval=p->getProc(c,p->prompt,c->parmBufps[idx],p->flags & FLAG_MAND)) && repeat);
+	} while ((rval=p->getProc(c,p->prompt,p->pval,p->flags & FLAG_MAND)) && repeat);
 	return rval;
 }
 
@@ -664,8 +710,8 @@ int  i;
 				if ('\n'==*chpt)
 					fputs("  ",c->out); /* indent */
 			}
-			if (*c->parmBufps[i])
-				fputs(*c->parmBufps[i],c->out);
+			if (*p->pval)
+				fputs(*p->pval,c->out);
 			fputc('\n',c->out);
 		}
 		fputc('\n',c->out);
@@ -678,11 +724,12 @@ int  i;
 static int
 config(NetConfigCtxt c, int howmany)
 {
-int  i=0;
+int  i;
 int  rval = 0;
 Parm p;
 
 	fprintf(c->out,"Changing NVRAM configuration\n");
+#ifndef DISABLE_HOTKEYS
 	fprintf(c->out,"Use '<Ctrl>-%c' to go up to previous field\n",
 				SPC2CHR(SPC_UP));
 	fprintf(c->out,"Use '<Ctrl>-%c' to restore this field\n",
@@ -695,14 +742,20 @@ Parm p;
 	fprintf(c->out,"Use '<Ctrl>-%c' to reboot\n",
 				SPC2CHR(SPC_REBOOT));
 #endif
+#endif
+
+for (p=c->parmList,i=0; p->name; p++)
+	/* nothing else to do */;
+i = p-c->parmList;
 
 if	(howmany<1)
 	howmany=1;
-else if	(howmany > c->nParms )
-	howmany = c->nParms ;
+else if	(howmany > i)
+	howmany = i;
 
 installHotkeys(c);
 
+i = 0;
 while ( i>=0 && i<howmany ) {
 	switch ( callGet(c, i, 0 /* dont repeat */) ) {
 
@@ -737,7 +790,7 @@ uninstallHotkeys(c);
 /* make sure we have all mandatory parameters */
 for (p=c->parmList,i=0; p->name; p++,i++) {
 	if ( (p->flags&FLAG_MAND) ) {
-		while ( !*c->parmBufps[i] ) {
+		while ( !*p->pval ) {
 			rval = 0;
 			fprintf(c->out,"Need parameter...\n");
 			callGet(c, i, 0);
@@ -749,7 +802,7 @@ for (p=c->parmList,i=0; p->name; p++,i++) {
 {
 char *endp,*override=0;
 unsigned long d,min,max;
-char *secs = *c->parmBufps[DELYSECS_IDX];
+char *secs = *c->parmList[DELYSECS_IDX].pval;
 	
 	min=strtoul(DELAY_MIN,0,0);
 	max=strtoul(DELAY_MAX,0,0);
@@ -773,8 +826,8 @@ char *secs = *c->parmBufps[DELYSECS_IDX];
 		override=DELAY_DEF;
 	}
 	if (override) {
-		free(*c->parmBufps[DELYSECS_IDX]);
-		*c->parmBufps[DELYSECS_IDX] = strdup(override);
+		free(*c->parmList[DELYSECS_IDX].pval);
+		*c->parmList[DELYSECS_IDX].pval = strdup(override);
 		rval = 0;
 	}
 }
@@ -791,7 +844,7 @@ unsigned char *jobs[3], **job;
 
 
 	jobs[0]=c->parmList[i_parm].name;
-	if ( ! (jobs[1]=*c->parmBufps[i_parm]) )
+	if ( ! (jobs[1]=*c->parmList[i_parm].pval) )
 		return 0;
 	jobs[2]=0;
 
@@ -894,8 +947,8 @@ int				i;
 				if (strncmp(pch, p->name, val-pch))
 				continue;
 					/* found the parameter */
-					free(*c->parmBufps[i]);
-					*c->parmBufps[i] = strdup(val);
+					free(*p->pval);
+					*p->pval = strdup(val);
 				break; /* for p=c->parmList */
 			}
 		}
@@ -910,16 +963,12 @@ cleanup:
 static void
 netConfigCtxtFinalize(NetConfigCtxt c)
 {
-int i;
+Parm p;
 
-	for (i=0; i<c->nParms; i++) {
-		free(*c->parmBufps[i]);
-		*c->parmBufps[i] = 0;
+	for (p = c->parmList; p->name; p++) {
+		free(*p->pval);
+		*p->pval = 0;
 	}
-#ifndef __INSIDE_NETBOOT__
-	free(c->parmBufps[0]);
-#endif
-	free(c->parmBufps);
 #ifndef USE_READLINE
 	del_GetLine(c->gl);
 #endif
@@ -928,8 +977,8 @@ int i;
 static void
 netConfigCtxtInitialize(NetConfigCtxt c, FILE *f)
 {
-int		i;
 char	*tmp, *fn;
+Parm	p;
 
 	memset(c, 0, sizeof(*c));
 
@@ -939,30 +988,19 @@ char	*tmp, *fn;
    * so they can be used by a full-blown system outside of 'netboot')
    */
 
-  	c->nParms = (sizeof(parmList) / sizeof(parmList[0])) - 1;
-    c->parmBufps = malloc( sizeof(*c->parmBufps) * c->nParms ); 
 	c->err    = stderr;
 	c->out    = f ? f : stdout;
-#ifdef __INSIDE_NETBOOT__
-	for (i=0; i<c->nParms; i++) {
-		c->parmBufps[i] = parmList[i].pval;
-	}
-#else
-	{
-	char **tmp1 = calloc( c->nParms, sizeof(**c->parmBufps) );
-	for (i = 0; i<c->nParms; i++) {
-		c->parmBufps[i] = &tmp1[i];
-	}
-	}
-#endif
 	c->parmList = parmList;
 
 	fn = tmp = malloc(500);
+	*fn = 0;
 
 #ifdef USE_READLINE
 	rl_initialize();
 
+#ifdef SPC_REBOOT
 	rl_bind_key(SPC_REBOOT,handle_spc);
+#endif
 	rl_bind_key(SPC_CLEAR_UNDO, hack_undo);
 	/* readline (temporarily) modifies the argument to rl_parse_and_bind();
 	 * mustn't be static/ro text
@@ -973,6 +1011,7 @@ char	*tmp, *fn;
 	/* no history */
 	c->gl = new_GetLine(500,0);
 
+#ifndef DISABLE_HOTKEYS
 	fn += sprintf(fn,"bind ^%c newline\n",SPC2CHR(SPC_STOP));
 	addConsoleSpecialChar(SPC_STOP);
 	fn += sprintf(fn,"bind ^%c newline\n",SPC2CHR(SPC_RESTORE));
@@ -981,6 +1020,7 @@ char	*tmp, *fn;
 	addConsoleSpecialChar(SPC_UP);
    	fn += sprintf(fn,"bind ^%c newline\n",SPC2CHR(SPC_ESC));
 	addConsoleSpecialChar(SPC_ESC);
+#endif
 
 	gl_configure_getline(c->gl, tmp, 0, 0);
 #endif
@@ -990,9 +1030,9 @@ char	*tmp, *fn;
 	/* initialize buffers; all configuration variables
 	 * must be malloc()ed
 	 */
-	for (i=0; i<c->nParms; i++) {
-		if ( (c->parmList[i].flags & FLAG_DUP) && *c->parmBufps[i] )
-				*c->parmBufps[i] = strdup(*c->parmBufps[i]);
+	for (p = c->parmList; p->name; p++) {
+		if ( (p->flags & FLAG_DUP) && *p->pval )
+				*p->pval = strdup(*p->pval);
 	}
 }
 
@@ -1104,12 +1144,14 @@ nvramConfigShow(FILE *f)
 NetConfigCtxtRec ctx;
 	if (lock())
 		return -1;
+	if (!f)
+		f = stdout;
 	netConfigCtxtInitialize(&ctx,f);
 	showConfig(&ctx, 1);
-	unlock();
 	netConfigCtxtFinalize(&ctx);
-	note(ctx.out);
-	fprintf(ctx.out,"      To show the active configuration use: bootConfigShow()\n");
+	unlock();
+	note(f);
+	fprintf(f,"      To show the active configuration use: bootConfigShow()\n");
 	return 0;
 }
 
@@ -1120,8 +1162,8 @@ char ch;
 #ifdef GET_RAW_INPUT
 struct termios ot,nt;
 	tcgetattr(fileno(stdin),&ot);
-	nt = ot;
-	nt.c_lflag &= ~ICANON;
+	nt             = ot;
+	nt.c_lflag    &= ~ICANON;
 	nt.c_cc[VMIN]  = 1;
 	nt.c_cc[VTIME] = 0;
 #else
@@ -1140,7 +1182,6 @@ struct termios ot,nt;
 		ch = toupper(ch);
 #else
 		char *resp=gl_get_line(c->gl, "OK to write NVRAM? [y]/n:", 0, -1);
-		fprintf(stderr,"GOT %s\n",resp ? resp : "<NULL>");
 		ch = (resp && *resp) ? toupper(*resp) : 'Y';
 		if ( '\n' == ch || '\r' == ch )
 			ch = 'Y';
@@ -1165,10 +1206,12 @@ NetConfigCtxtRec ctx;
 	if ( (got=config(&ctx, 1000)) >= 0 ) {
 		if (got > 0 || confirmed(&ctx) ) {
 			writeNVRAM(&ctx);
+		} else {
+			fprintf(stderr,"Changes aborted...\n");
 		}
 	}
-	unlock();
 	netConfigCtxtFinalize(&ctx);
+	unlock();
 	return 0;
 }
 
