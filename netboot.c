@@ -9,6 +9,8 @@
 #define TFTP_PREFIX		"/TFTP/BOOTP_HOST/"		/* filename to prepend when accessing the image via TFTPfs (only if "/TFTP/" not already present) */
 #define CMDPARM_PREFIX	"BOOTFILE="				/* if defined, 'BOOTFILE=<image filename>' will be added to the kernel commandline */
 
+#define DEBUG
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -512,6 +514,9 @@ rtems_task Init(
 		writeNVRAM(&ctx);
 	}
 
+	if ( !CPU_TAU_offset )
+		tauOffsetHelp();
+
 
 	/* give them a chance to abort the netboot */
 	{
@@ -731,7 +736,6 @@ rtems_task Init(
 		/* assemble command line */
 		{
 			int 	len;
-			Parm	end;
 			char	*quoted=0;
 			char	*unquoted=bootparms;
 			char	*src,*dst;
@@ -768,26 +772,23 @@ rtems_task Init(
 				bootparms = quoted = strdup("''");
 			}
 
-			p=ctx.parmList; i = 0;
-
-			len = 0;
 
 			/* then we append a bunch of environment variables */
-			if ( !rtems_bsdnet_config.bootp )
-				end = p+1000; /* will encounter the end mark */
-			else if (manual)
-				end = p+SERVERIP_IDX+1;
-			else
-				end = p;
-
-			for (; p<end && p->name; p++, i++) {
+			for (i=len=0, p=ctx.parmList; p->name; p++, i++) {
 				char *v;
 				int		incr;
 
 				v = *ctx.parmList[i].pval;
 
 				/* unused or empty parameter */
-				if (p->flags&FLAG_NOUSE || !v) continue;
+				if ( p->flags&FLAG_NOUSE			||
+					 !v								||
+					 ( rtems_bsdnet_config.bootp && 
+						(p->flags & FLAG_BOOTP)  &&					/* should obtain this by bootp */
+						! (manual && (p->flags & FLAG_BOOTP_MAN))	/* AND it's not manually overridden */
+					 )
+					)
+					continue;
 
 				if (len) {
 					cmdline[len++]=' '; /* use space of the '\0' */

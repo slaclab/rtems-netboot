@@ -77,10 +77,12 @@
 
 #define SPC2CHR(spc) ((spc)+'a'-1) 
 
-#define FLAG_MAND	1
-#define FLAG_NOUSE	2	/* dont put into the commandline at all */
-#define FLAG_CLRBP  4	/* field needs to be cleared for bootp  */
-#define FLAG_DUP	8	/* field needs strdup at init time      */
+#define FLAG_MAND		(1<<0)
+#define FLAG_NOUSE		(1<<1)	/* dont put into the commandline at all */
+#define FLAG_CLRBP  	(1<<2)	/* field needs to be cleared for bootp  */
+#define FLAG_DUP		(1<<3)	/* field needs strdup at init time      */
+#define FLAG_BOOTP		(1<<4)  /* dont put into commandline when BOOTP active */
+#define FLAG_BOOTP_MAN	(1<<5)	/* DO put into commandline even when BOOTP active but manual override is effective */
 
 
 typedef struct NetConfigCtxtRec_	*NetConfigCtxt;
@@ -116,7 +118,7 @@ readNVRAM(NetConfigCtxt c);
 static void
 writeNVRAM(NetConfigCtxt c);
 
-#define NUM_PARMS 17
+#define NUM_PARMS 18
 
 #ifdef __INSIDE_NETBOOT__
 /* all kernel commandline parameters */
@@ -131,6 +133,7 @@ static char *filename=0;
 /* flags need to strdup() these! */
 static char *use_bootp="Y";
 static char *auto_delay_secs=DELAY_DEF;
+static char *CPU_TAU_offset = 0;
 #else
 static char *strbuf[NUM_PARMS] = {0};
 #endif
@@ -146,6 +149,7 @@ static int getNum(GET_PROC_ARG_PROTO);
 #define SERVERIP_IDX 2
 #define BOOTP_EN_IDX 15
 #define DELYSECS_IDX 16
+#define CPU_TAU_IDX  17
 
 /* The code assembling the kernel boot parameter line depends on the order
  * the parameters are listed
@@ -159,7 +163,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #endif
 			"Boot file name (may be '~user/path' to specify rsh user):\n"
 			" >",
-			getString,		FLAG_MAND,
+			getString,		FLAG_MAND | FLAG_BOOTP | FLAG_BOOTP_MAN,
 	},
 	{ "BP_PARM=",
 #ifdef __INSIDE_NETBOOT__
@@ -169,7 +173,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #endif
 			"Command line parameters:\n"
 			" >",
-			getCmdline,		0,
+			getCmdline,		0 | FLAG_BOOTP | FLAG_BOOTP_MAN,
 	},
 	{ "BP_SRVR=",
 #ifdef __INSIDE_NETBOOT__
@@ -178,7 +182,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 2,
 #endif
 			"Server IP:    >",
-			getIpAddr,		FLAG_MAND,
+			getIpAddr,		FLAG_MAND | FLAG_BOOTP | FLAG_BOOTP_MAN,
 	},
 	{ "BP_GTWY=",
 #ifdef __INSIDE_NETBOOT__
@@ -187,7 +191,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 3,
 #endif
 			"Gateway IP:   >",
-			getIpAddr,		FLAG_CLRBP, 
+			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP, 
 	},
 	{ "BP_MYIP=",
 #ifdef __INSIDE_NETBOOT__
@@ -196,7 +200,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 4,
 #endif
 			"My IP:        >",
-			getIpAddr,		FLAG_MAND| FLAG_CLRBP,
+			getIpAddr,		FLAG_MAND| FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_MYMK=",
 #ifdef __INSIDE_NETBOOT__
@@ -205,7 +209,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 5,
 #endif
 			"My netmask:   >",
-			getIpAddr,		FLAG_MAND | FLAG_CLRBP,
+			getIpAddr,		FLAG_MAND | FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_MYNM=",
 #ifdef __INSIDE_NETBOOT__
@@ -214,7 +218,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 6,
 #endif
 			"My name:      >",
-			getString,		FLAG_CLRBP,
+			getString,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_MYDN=",
 #ifdef __INSIDE_NETBOOT__
@@ -223,7 +227,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 7,
 #endif
 			"My domain:    >",
-			getString,		FLAG_CLRBP,
+			getString,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_LOGH=",
 #ifdef __INSIDE_NETBOOT__
@@ -232,7 +236,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 8,
 #endif
 			"Loghost IP:   >",
-			getIpAddr,		FLAG_CLRBP,
+			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_DNS1=",
 #ifdef __INSIDE_NETBOOT__
@@ -241,7 +245,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 9,
 #endif
 			"DNS server 1: >",
-			getIpAddr,		FLAG_CLRBP,
+			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_DNS2=",
 #ifdef __INSIDE_NETBOOT__
@@ -250,7 +254,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 10,
 #endif
 			"DNS server 2: >",
-			getIpAddr,		FLAG_CLRBP,
+			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_DNS3=",
 #ifdef __INSIDE_NETBOOT__
@@ -259,7 +263,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 11,
 #endif
 			"DNS server 3: >",
-			getIpAddr,		FLAG_CLRBP,
+			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_NTP1=",
 #ifdef __INSIDE_NETBOOT__
@@ -268,7 +272,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 12,
 #endif
 			"NTP server 1: >",
-			getIpAddr,		FLAG_CLRBP,
+			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_NTP2=",
 #ifdef __INSIDE_NETBOOT__
@@ -277,7 +281,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 13,
 #endif
 			"NTP server 2: >",
-			getIpAddr,		FLAG_CLRBP,
+			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_NTP3=",
 #ifdef __INSIDE_NETBOOT__
@@ -286,7 +290,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 14,
 #endif
 			"NTP server 3: >",
-			getIpAddr,		FLAG_CLRBP,
+			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_ENBL=",
 #ifdef __INSIDE_NETBOOT__
@@ -295,7 +299,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 15,
 #endif
 			"Use DHCP:                           [Y/N] >",
-			getYesNo,		FLAG_DUP,
+			getYesNo,		FLAG_DUP | FLAG_BOOTP,
 	},
 	{ "BP_DELY=",
 #ifdef __INSIDE_NETBOOT__
@@ -309,8 +313,30 @@ static ParmRec parmList[NUM_PARMS+1]={
 			getNum,
 			FLAG_NOUSE | FLAG_DUP,
 	},
+	{ "BP_TAUO=",
+#ifdef __INSIDE_NETBOOT__
+			&CPU_TAU_offset,
+#else
+			strbuf + 17,
+#endif
+			"CPU Temp. Calibration - (LEAVE IF UNSURE) >",
+			getNum,
+			0,
+	},
 	{ 0, }
 };
+
+static void
+tauOffsetHelp()
+{
+	printf("Your CPU Temperature calibration changed or was not initialized...\n");
+	printf("To calibrate the CPU TAU (thermal assist unit), you must observer the following steps:\n");
+	printf("  1. Let your board stabilize to ambient temperature (POWERED OFF)\n");
+	printf("  2. Measure the ambient temperature Tamb (deg. C)\n");
+	printf("  3. Power-up your board and read the Temperature printed by SMON/FDIAG (Tsmon)\n");
+	printf("     NOTE: use ONLY the info printed IMMEDIATELY after powerup\n");
+	printf("  4. Set the calibration offset to Tamb - Tsmon\n");
+}
 
 
 #ifdef USE_READLINE
@@ -1206,6 +1232,8 @@ NetConfigCtxtRec ctx;
 		return -1;
 	netConfigCtxtInitialize(&ctx,stdout);
 	readNVRAM(&ctx);
+	if ( !*ctx.parmList[CPU_TAU_IDX].pval )
+		tauOffsetHelp();
 	if ( (got=config(&ctx, 1000)) >= 0 ) {
 		if (got > 0 || confirmed(&ctx) ) {
 			writeNVRAM(&ctx);
