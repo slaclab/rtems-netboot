@@ -20,7 +20,10 @@
 #include <sys/socket.h>
 
 #include <unistd.h>
+
+#ifdef GET_RAW_INPUT
 #include <termios.h>
+#endif
 
 #ifdef USE_READLINE
 #include <readline/readline.h>
