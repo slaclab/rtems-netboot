@@ -43,7 +43,7 @@ include $(RTEMS_ROOT)/make/leaf.cfg
 # (OPTIONAL) Add local stuff here using +=
 #
 
-DEFINES  +=
+DEFINES +=
 # -DUSE_SHELL
 CPPFLAGS += -I$(exec_prefix)/include -I.
 CFLAGS += $(DEBUG) -DWINS_LINE_DISC
@@ -75,6 +75,8 @@ all:	${ARCH} $(SRCS) $(PGMS)
 
 ${PGMS}: ${OBJS} ${LINK_FILES}
 	$(make-exe)
+
+$(ARCH)/netboot.o: nvram.c
 
 term.c: termsize/term.c
 	ln -s $^ $@
