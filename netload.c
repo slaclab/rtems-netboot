@@ -9,24 +9,31 @@
 #define CMDPARM_PREFIX	"BOOTFILE="				/* if defined, 'BOOTFILE=<image filename>' will be added to the kernel commandline */
 #define ABORT_WAIT_SECS	2						/* how many seconds to give the user for aborting a netboot */
 
-#include <bsp.h>
-#include <stdio.h>
-#include <stdlib.h>
+
 #include <string.h>
-#include <assert.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <rtems/rtems_bsdnet.h>
+
+#include <rtems.h>
 #include <rtems/error.h>
+#include <rtems/rtems_bsdnet.h>
+
+#include <sys/socket.h>
+#include <sys/sockio.h>
+
+#include <net/if.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#include <bsp.h>
+
 
 #include <readline/readline.h>
 #include <readline/history.h>
 
 #include <termios.h>
-
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
 
 /* this is not declared anywhere */
 int
@@ -169,6 +176,47 @@ struct rtems_bsdnet_config rtems_bsdnet_config = {
 	{0,0,0},
     };
 
+/* NOTE: rtems_bsdnet_ifconfig(,SIOCSIFFLAGS,) does only set, but not
+ *       clear bits in the flags !!
+ */
+static void
+bringdown_netifs(struct rtems_bsdnet_ifconfig *ifs)
+{
+int				sd,err;
+struct ifreq	ir;
+char			*msg;
+
+	sd=socket(AF_INET, SOCK_DGRAM, 0);
+
+	if (sd<0) {
+		perror("socket");
+	} else {
+		for (; ifs; ifs=ifs->next) {
+			strncpy(ir.ifr_name, ifs->name, IFNAMSIZ);
+
+			msg="SIOCGIFFLAGS";
+
+			err = ioctl(sd, SIOCGIFFLAGS, &ir)<0;
+
+			if (!err) {
+				ir.ifr_flags &= ~IFF_UP;
+				msg = "SIOCSIFFLAGS";
+				err = ioctl(sd, SIOCSIFFLAGS, &ir) < 0;
+			}
+
+			if (err) {
+				printf("WARNING: unable to bring down '%s' - may corrupt memory!!!\n",
+					ifs->name);
+				perror(msg);
+			} else {
+				printf("%s successfully shut down\n",ifs->name);
+			}
+		}
+	}
+	fflush(stdout);
+	if (sd>=0) close(sd);
+}
+
 /* figure out the cache line size */
 static unsigned long
 probeCacheLineSize(unsigned long *workspace, int nels)
@@ -185,7 +233,7 @@ register unsigned long *u,*l;
 extern int rcmd();
 
 #define RSH_PORT	514
-#define RSH_BUFSZ	6000000
+#define RSH_BUFSZ	25000000
 
 static long
 handleInput(int fd, int errfd, char *bufp, long size)
@@ -304,14 +352,23 @@ register unsigned long algn;
 	flushCaches(buf,ntot,algn);
 
 	fprintf(stderr,"0x%lx (%li) bytes read\n",ntot,ntot);
-	fprintf(stderr,"Starting @%p...\n",buf);
-	fflush(stderr); fflush(stdout);
-	sleep(1);
 
 #if 0 /* testing */
 	close(fd); close(errfd);
 	return mem;
 #else
+
+	/* VERY important: stop the network interface - otherwise,
+	 * its DMA engine might continue writing memory, possibly
+	 * corrupting the loaded system!
+	 */
+	bringdown_netifs(rtems_bsdnet_config.ifconfig);
+
+	fprintf(stderr,"Starting loaded image @%p NOW...\n",buf);
+
+	/* make sure they see our messages */
+	fflush(stderr); fflush(stdout);
+	sleep(1);
 	/* fire up a loaded image */
 	rtems_interrupt_disable(l);
 	{
@@ -450,7 +507,7 @@ rtems_task Init(
 
 	tftp_prefix=strdup(TFTP_PREFIX);
 
-	fprintf(stderr,"RTEMS bootloader by Till Straumann <strauman@slac.stanford.edu>\n");
+	fprintf(stderr,"\n\nRTEMS bootloader by Till Straumann <strauman@slac.stanford.edu>\n");
 	fprintf(stderr,"$Id$\n");
 
 	/* give them a chance to abort the netboot */
@@ -503,6 +560,11 @@ rtems_task Init(
 				tcsetattr(0,TCSANOW,&ot);
 			}
 		}
+	}
+
+	{
+		extern int yellowfin_debug;
+		yellowfin_debug=1;
 	}
 
   	rtems_bsdnet_initialize_network(); 
