@@ -2,7 +2,118 @@
 
 #define DFLT_FNAME		dflt_fname
 
-static char *dflt_fname = "rtems.bin";
+#define UNSUP_PATH	(-1)
+
+#define VALID_PATH(t) ((t) >= 0)
+
+#define LOCAL_PATH	0
+
+#ifdef TFTP_SUPPORT
+#define TFTP_PATH	1
+#else
+#define TFTP_PATH	UNSUP_PATH
+#endif
+
+#ifdef RSH_SUPPORT
+#define RSH_PATH	2
+#else
+#define RSH_PATH	UNSUP_PATH
+#endif
+
+#ifdef NFS_SUPPORT
+#define NFS_PATH	3
+#else
+#define NFS_PATH	UNSUP_PATH
+#endif
+
+static char *dflt_fname  = "rtems.bin";
+static char *path_prefix = 0;
+
+static int
+pathType(const char *path)
+{
+char *col1, *col2, *tild, *at, *slash;
+struct in_addr dummy;
+int help = 0, rc;
+
+	if ( strlen(path) > 7 && !strncmp("/TFTP/",path,6)) {
+		if ( (slash = strchr(path+6, '/')) ) {
+			char ch = *slash;
+			*slash = 0; /* assume path is not a constant string */
+			rc = inet_aton(path+6,&dummy) || !strcmp(path+6, "BOOTP_HOST");
+			*slash = ch;
+			if ( rc )
+				return TFTP_PATH;
+		}
+		help = 1;
+	}
+
+	col1  = strchr(path,':');
+	tild  = strchr(path,'~');
+	slash = strchr(path,'/');
+	col2  = col1 ? strchr(col1+1,':') : 0;
+	at    = strchr(path,'@');
+
+	/* absolute, local path */
+	if ( slash && slash == path )
+		return LOCAL_PATH;
+
+	/*
+	 * tilde must be present and it must either follow the colon or must be the
+	 * first character.
+	 * Sanity: 
+	 *   - the first slash must occur after the
+	 *   - 'at' sign, if present, must occur after tilde.
+	 */
+	if ( tild && ( !slash || slash > tild ) ) {
+		if (  tild == (col1 ? col1 + 1 : path)   &&
+              ( !at || at > tild ) )
+			return RSH_PATH;
+		else {
+			/* sanity check failed; print info but continue */
+			help = 1;
+		}
+	}
+
+	/* NFS:  two colons must be present; slash must follow the first colon
+	 *       at, if present, must be less than first colon.
+	 */
+	if ( col1 && col2 && slash ) {
+		if ( slash == col1+1 && ( !at || at < col1 ) )
+			return NFS_PATH;
+		else {
+			/* sanity check failed; print info but continue */
+			help = 1;
+		}
+	}
+
+	if ( help ) {
+		fprintf(stderr,"\nYou specified a possibly ill-formed remote path; trying local...\n");
+		fprintf(stderr,"Valid pathspecs are:\n");
+		fprintf(stderr,"   NFS: [<uid>.<gid>@][<host>]:<export_path>:<symfile_path>\n"); 
+		fprintf(stderr,"  TFTP: [/TFTP/<host_ip>]<symfile_path>\n"); 
+		fprintf(stderr,"   RSH: [<host>:]~<user>/<symfile_path>\n"); 
+	}
+	return LOCAL_PATH;
+}
+
+static char *buildPath(int type, char *path, char *prefix)
+{
+	if ( ! VALID_PATH(type) )
+		return 0;
+
+	if ( type == pathType(path) )
+		return strdup(path);
+
+	if ( prefix && *prefix) {
+		char *rval = malloc( strlen(prefix) + strlen(path) + 1 );
+		sprintf(rval, "%s%s", prefix, path );
+		if ( type == pathType( rval ) )
+				return rval;
+		free(rval);
+	}
+	return 0;
+}
 
 /* A couple of words about the isXXXPath() interface:
  *
@@ -66,22 +177,26 @@ static char *dflt_fname = "rtems.bin";
 static char *
 fnCheck(char *path)
 {
-char *rval = malloc( (path ? strlen(path) : 0 )+strlen(DFLT_FNAME) + 1);
+char *rval = malloc( (path ? strlen(path) : 0 )+ (DFLT_FNAME ? strlen(DFLT_FNAME) : 0 ) + 1);
 char *fn   = 0;
 
 	if ( !path || !*path || '/' == path[strlen(path)-1] ) {
-		fprintf(stderr,"No file; trying '%s'\n",DFLT_FNAME);
-		fn=DFLT_FNAME;
+		if ( (fn=DFLT_FNAME) )
+			fprintf(stderr,"No file; trying '%s'\n",fn);
 	}
 	sprintf(rval,"%s%s",path ? path : "", fn ? fn : "");
 	return rval;
 }
 
-#ifndef COREDUMP_APP
+#define IDOT_STR_LEN	20	/* enough to hold an IP4 dotted address or "BOOTP_HOST" */
 
+#if defined(RSH_SUPPORT) || defined(NFS_SUPPORT)
 static int
 srvCheck(char **srvname, char *path)
 {
+struct hostent	*h;
+char			buf[IDOT_STR_LEN];	/* enough to hold a 'dot-notation' ip addr */
+
 	if (   !path || !*path || 0==strcmp(path, "BOOTP_HOST") ) {
 		if ( !*srvname ) {
 			fprintf(stderr,"No server name in pathspec and default server not set :-(\n");
@@ -89,44 +204,98 @@ srvCheck(char **srvname, char *path)
 		}
 	} else {
 		/* Changed server name */
+		/* canonicalize server name by looking it up */
+
+		/* NOTE: gethostbyname is NOT REENTRANT */
+		if ( ! (h = gethostbyname(path)) ||
+		     ! inet_ntop( AF_INET,
+			              (struct in_addr*)h->h_addr_list[0],
+		                  buf,
+                          sizeof(buf)-1 ) ) {
+			fprintf(stderr,"Unable to lookup '%s'\n", path);
+			return -1;
+				}
+		buf[sizeof(buf)-1]=0;
 		free(*srvname);
-		*srvname = strdup(path);
+		*srvname = strdup(buf);
 	}
 	return 0;
 }
+#endif
 
-static void releaseMount(char **mountp)
+#if defined(NFS_SUPPORT)
+#define MDESC_FLG_OWN_STRING (1<<0)
+
+typedef struct MntDesc_ {
+	char *mntpt;
+	int	 flags;
+	char *uidhost;
+	char *rpath;
+} MntDescRec, *MntDesc;
+
+static MntDescRec dflt_mnt = { "/mnt", };
+
+static int releaseMount(MntDesc m)
 {
-    if ( *mountp ) {
-        unmount( *mountp );
-        unlink( *mountp );
-        free( *mountp );
-        *mountp = 0;
+int  rc = 0;
+
+	if ( !m )
+		m = &dflt_mnt;
+
+	/* uidhost serves as a flag to check if this descriptor is currently mounted */
+    if ( m->uidhost && m->mntpt ) {
+		if ( 0 == (rc = unmount( m->mntpt )) ) {
+        	unlink( m->mntpt );
+		}
     }
+	if ( !rc ) {
+		free( m->rpath );
+		m->rpath = 0;
+		free( m->uidhost );
+		m->uidhost = 0;
+		if ( m->flags & MDESC_FLG_OWN_STRING ) {
+			free( m->mntpt );
+			m->mntpt = 0;
+			m->flags &= ~MDESC_FLG_OWN_STRING;
+		}
+	}
+	return rc;
 }
 
 /* RETURNS -2 if mount is ok but file cannot be opened; leaves NFS mounted */
-static int isNfsPath(char **srvname, char *opath, int *perrfd, char **thepathp, char **mntp, char **thesrvp)
+static int isNfsPath(char **srvname, char *opath, int *perrfd, char **thepathp, MntDesc md)
 {
 
 int  fd    = -1, l;
-char *fn   = 0, *path = strdup(opath);
+char *fn   = 0, *path = 0;
 char *col1 = 0, *col2 = 0, *slas = 0, *at = 0, *srv=path, *ugid=0;
 char *srvpart  = 0;
+char *rpath = 0;
+char *mnt   = 0;
 
+int  allocMntstring;
+
+	if ( !md )
+		md = &dflt_mnt;
+
+	allocMntstring = ! (mnt = md->mntpt);
 
 	if ( perrfd )
 		*perrfd = -1;
 
-	if ( 	!(col1=strchr(path,':'))
-		 || !(col2=strchr(col1+1,':'))
-		 || !(slas=strchr(path,'/'))
-         || slas!=col1+1 ) {
-		if (col1)
-			fprintf(stderr,"NFS pathspec is [[uid.gid@]host]:<path_to_mount>:<file_rel_to_mntpt>\n");
-		free( path );
+	if ( md->uidhost || md->rpath ) {
+		fprintf(stderr,"Mount point '%s' is already in use\n", md->mntpt ? md->mntpt : "<CORRUPTED>");
+		return -1;
+	}
+
+
+	if ( !(path = buildPath(NFS_PATH, opath, path_prefix)) ) {
 		return -11;
 	}
+
+	col1=strchr(path,':');
+	col2=strchr(col1+1,':');
+	slas=strchr(path,'/');
 
 	if ( (at = strchr(path,'@')) && at < col1 ) {
 		srv = at + 1;
@@ -151,6 +320,8 @@ char *srvpart  = 0;
 	*col1 = 0;
 	*col2 = 0;
 
+	rpath = strdup(col1+1);
+
 	if ( srvCheck( srvname, srv ) ) {
 		fd = -10;
 		goto cleanup;
@@ -170,45 +341,47 @@ char *srvpart  = 0;
 	}
 	strcat(srvpart, *srvname);
 
-	if ( !*mntp ) {
+	if ( allocMntstring ) {
 		char *tmp;
 
-		*mntp = malloc( 1 /* '/' */ + l + 1 /* ':' */ + strlen(col1+1) + 1 );
+		mnt = malloc( 1 /* '/' */ + l + 1 /* ':' */ + strlen(rpath) + 1 );
 
-		sprintf(*mntp,"/%s:%s", srvpart, col1+1);
+		sprintf(mnt,"/%s:%s", srvpart, rpath);
 
-		/* remove trailing '/' in *mntp */
-		for ( tmp = *mntp + strlen(*mntp) - 1; '/' == *tmp && tmp >= *mntp; )
+		/* remove trailing '/' in mnt */
+		for ( tmp = mnt + strlen(mnt) - 1; '/' == *tmp && tmp >= mnt; )
 				*tmp-- = 0;
 
 		/* convert '/' in the server path into '.' */
-		for ( tmp = *mntp + 1 + l + 1; (tmp = strchr(tmp, '/')); ) {
+		for ( tmp = mnt + 1 + l + 1; (tmp = strchr(tmp, '/')); ) {
 			*tmp++ = '.';
 		}
 	} else {
 		/* they provide a mountpoint */
 	}
 
-	path = realloc(path, strlen(*mntp) + 1 /* '/' */ + strlen(fn) + 1);
-	sprintf(path,"%s/%s",*mntp,fn);
+	path = realloc(path, strlen(mnt) + 1 /* '/' */ + strlen(fn) + 1);
+	sprintf(path,"%s/%s",mnt,fn);
 
 	if ( perrfd ) {
 		struct stat probe;
 		int         existed;
 
 		/* race condition from here till possible unlink */
-		existed = !stat(*mntp, &probe);
+		existed = !stat(mnt, &probe);
 		
-		if ( nfsMount(srvpart, col1+1, *mntp) ) {
+		if ( nfsMount(srvpart, rpath , mnt) ) {
 			if ( !existed )
-				unlink(*mntp);
-			free(*mntp);
-			*mntp = 0;
+				unlink(mnt);
+			if ( allocMntstring ) {
+				free(mnt);
+				mnt = 0;
+			}
 			goto cleanup;
 		} else {
 			fd = open(path,O_RDONLY);
 			if ( fd < 0 ) {
-				perror("Opening boot file failed");
+				perror("Opening file failed");
 				/* leave mounted and continue */
 				fd = -2;
 			}
@@ -224,18 +397,26 @@ char *srvpart  = 0;
 		path = 0;
 	}
 
-	if ( thesrvp )  {
-		*thesrvp  = srvpart;
-		srvpart   = 0;
-	}
+	md->mntpt = mnt;
+	md->uidhost = srvpart; 
+	srvpart   = 0;
+	md->rpath = rpath;
+	rpath     = 0;
+	if ( allocMntstring )
+		md->flags |= MDESC_FLG_OWN_STRING;
+	else
+		md->flags &= ~MDESC_FLG_OWN_STRING;
 
 cleanup:
 	free(srvpart);
 	free(fn);
 	free(path);
+	free(rpath);
 	return fd;
 }
+#endif
 
+#if defined(RSH_SUPPORT)
 extern int rcmd();
 
 #define RSH_PORT	514
@@ -249,22 +430,15 @@ char *tild = 0, *col1 = 0;
 char *cmd  = 0;
 char *path = 0;
 
-	path = strdup(opath);
-
-	col1 = strchr(path,':');
-	tild = strchr(path,'~');
-
 	if ( perrfd )
 		*perrfd = -1;
 
-	/* sanity check */
-	if ( !tild ||                       /* no tilde */
-		 (col1 && tild != col1 + 1) ||  /* found colon but not :~ */
-		 (!col1 && tild != path)      /* no colon and path doesn't start with tilde */
-	   ) {
-		fd = -11;
-		goto cleanup;
+	if ( !(path = buildPath(RSH_PATH, opath, path_prefix)) ) {
+		return -11;
 	}
+
+	col1 = strchr(path,':');
+	tild = strchr(path,'~');
 
 	if ( !col1 && !*srvname ) {
 		fprintf(stderr,"No default server; specify '<server>:~<user>/<path'\n");
@@ -295,7 +469,10 @@ char *path = 0;
 	cmd = malloc(strlen(RSH_CMD)+strlen(fn)+1);
 	sprintf(cmd,"%s%s",RSH_CMD,fn);
 
-	fd=rcmd(srvname,RSH_PORT,username,username,cmd,perrfd);
+	{
+	char *willbechanged = *srvname;
+	fd=rcmd(&willbechanged, RSH_PORT, username,username,cmd,perrfd);
+	}
 
 	if ( perrfd ) {
 		if (fd<0) {
@@ -330,22 +507,19 @@ cleanup:
 }
 #endif
 
+#if defined(TFTP_SUPPORT)
 static int isTftpPath(char **srvname, char *opath, int *perrfd, char **thepathp)
 {
-int     fd = -1, hasPrefix;
-char    *path    = 0, *fn = 0, *srvpart = 0, *slash=0;
+int     fd = -1;
+char    *path    = 0, *fn = 0, *srvpart, *slash=0;
 char	*ofn;
 
 
 	if ( perrfd )
 		*perrfd = -1;
 
-	hasPrefix = !strncmp(opath,"/TFTP/",6);
-
-	if ( !hasPrefix && '/'==*opath ) {
-		/* must not be an absolute path with no prefix */
+	if ( !(srvpart = buildPath(TFTP_PATH, opath, path_prefix)) )
 		return -11;
-	}
 
  	if (!tftpInited && rtems_bsdnet_initialize_tftp_filesystem()) {
 		fprintf(stderr,"TFTP FS initialization failed - try NFS or RSH\n");
@@ -353,37 +527,32 @@ char	*ofn;
 	} else
 		tftpInited=1;
 
-
 	fprintf(stderr,"Using TFTP for transfer\n");
 
-	srvpart = strdup(opath);
-
-	if ( !hasPrefix ) {
-
-		/* no TFTP prefix; set srvpart to tftp prefix and strip trailing '/' */
-
-		srvpart = strdup(tftp_prefix); /* tftp_prefix contains trailing '/' */
-		ofn = opath;
-		if ( *srvpart )
-			srvpart[strlen(srvpart)-1] = 0; /* strip it */
-	} else {
-		/* have TFTP prefix; break at first slash after /TFTP/,
-		 * copy header to srvpart and remember trailing path
-		 * also, *srvname has to be reassigned.
-		 */
-		ofn = srvpart + 6;
-		/* may be necessary to rebuild the server name */
-		if ((slash=strchr(ofn,'/'))) {
-			*slash=0;	/* break into two pieces */
-			/* reassign *srvname */
-			free(*srvname);
-			*srvname=strdup(ofn);
-			/* ofn points to the path on the server */
-			ofn = slash + 1;
-		} else {
-			srvpart[5]=0;
-		}
+	/* 
+	 * 'buildPath' has verified that the pathspec is of the
+	 * form
+	 *      /TFTP/2.3.4.5/<...>
+	 * or
+	 *      /TFTP/BOOTP_HOST/<...>
+	 *
+	 * copy header to srvpart and remember trailing path
+	 * also, *srvname has to be reassigned.
+	 */
+	ofn   = srvpart + 6;
+	/* may be necessary to rebuild the server name */
+	slash = strchr(ofn,'/');
+	*slash=0;	/* break into two pieces */
+	/* reassign *srvname substituting 'BOOTP_HOST' */
+	free(*srvname);
+	*srvname = malloc(IDOT_STR_LEN);
+	if ( strcmp(ofn,"BOOTP_HOST") ||
+  	     ! inet_ntop( AF_INET, &rtems_bsdnet_bootp_server_address, *srvname, IDOT_STR_LEN ) ) {
+		strcpy(*srvname, ofn);
 	}
+	/* ofn points to the path on the server */
+	ofn = slash + 1;
+
 	fn = fnCheck(ofn);
 	path = malloc(strlen(srvpart) + 1 /* '/' */ + strlen(fn) + 1);
 	sprintf(path,"%s/%s",srvpart,fn);
@@ -409,3 +578,4 @@ cleanup:
 	free(path);
 	return fd;
 }
+#endif
