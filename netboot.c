@@ -70,7 +70,7 @@
 #include <readline/history.h>
 #else
 #include <libtecla.h>
-int queryTerminalSize(int infoLevel);
+int ansiTiocGwinszInstall(int line);
 #endif
 
 #include <termios.h>
@@ -1225,7 +1225,7 @@ rtems_task Init(
 	tmp=strdup("Control-r:revert-line");
 	rl_parse_and_bind(tmp);
 #else
-	queryTerminalSize(0);
+	ansiTiocGwinszInstall(7);
 	/* no history */
 	mygl = new_GetLine(500,0);
 
