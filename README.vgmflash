@@ -149,6 +149,10 @@ STARTING THE RTEMS LOADER
 	SMon0> r5=0; r6=0
 	 value = 0
 
+3) Make sure the network if's DMA is stopped
+
+   SMon0> netStop
+
 3) fire off
 
 	SMon0> g
