@@ -1,6 +1,6 @@
 # REAL VALUES (for use in flash)
 FLASHSTART=0xfff80000
-DEST=0
+DEST=0x100
 
 # DEBUGGING VALUES (make clean; make when changing these)
 #FLASHSTART=0x400000

@@ -58,7 +58,11 @@ extern unsigned long __zl_data_start;
 
 #define CACHE_LINE_SIZE 32
 
-#if DEST != 0
+#if DEST >= 0x3000
+#define TEST_IN_RAM
+#endif
+
+#ifdef TEST_IN_RAM
 static void zlprint(char *s);
 static void zlstop(unsigned v1, unsigned v2, unsigned v3);
 #else
@@ -91,7 +95,7 @@ register unsigned long *pd;	/* MUST NOT BE ON THE STACK (which might get destroy
 
 	/* set free memory / heap start address */
 	free_mem=(void*)GZ_ALIGN(((char*)&__zl_bss_end + EARLY_STACK_SIZE));
-#if DEST==0
+#ifndef TEST_IN_RAM
 	/* load up initial stack */
 	__asm__ __volatile__("mr %%r1, %0"::"r"(free_mem - 16));
 #endif
@@ -104,7 +108,7 @@ register unsigned long *pd;	/* MUST NOT BE ON THE STACK (which might get destroy
 			"mr %%r5, %0\n"
 			"mr %%r6, %1\n"
 			"mr %%r7, %%r3\n"
-#if DEST==0
+#ifndef TEST_IN_RAM
 			"mtlr	%0\n"
 			"blr\n"
 #else	
@@ -205,7 +209,7 @@ memcpy(char *dest, char *src, int n)
 	return dest;
 }
 
-#if DEST!=0
+#ifdef TEST_IN_RAM
 static void
 zlputc(int ch)
 {
