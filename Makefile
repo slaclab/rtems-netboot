@@ -108,7 +108,7 @@ install: $(PROGELF) $(FINALTGT) $(SCRIPTS)
 	$(INSTALL_CHANGE) $^ $(RTEMS_SITE_INSTALLDIR)/$(RTEMS_BSP)/img
 
 clean:
-	$(RM) $(TMPIMG) $(LINKBINS) $(LINKOBJS)
+	$(RM) $(TMPIMG) $(LINKBINS) $(LINKOBJS) map
 	$(MAKE) -f Makefile.rtems clean
 
 distclean: clean
