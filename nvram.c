@@ -152,7 +152,8 @@ static int getNum(GET_PROC_ARG_PROTO);
 #define CPU_TAU_IDX  17
 
 /* The code assembling the kernel boot parameter line depends on the order
- * the parameters are listed
+ * the parameters are listed.
+ * The prompts should be chosen in a way so the first ~14 chars make sense...
  */
 static ParmRec parmList[NUM_PARMS+1]={
 	{ "BP_FILE=",
@@ -720,9 +721,80 @@ Parm p = &c->parmList[idx];
 #ifdef USE_READLINE
 		if (*ppval && **ppval) add_history(*ppval);
 #endif
-	} while ((rval=p->getProc(c,p->prompt,p->pval,p->flags & FLAG_MAND)) && repeat);
+	} while ((rval=p->getProc(c,p->prompt,p->pval,0)) && repeat);
 	return rval;
 }
+
+
+/* return -1 if we have all necessary parameters
+ * so we could boot:
+ *  - bootp flag on  -> some fields may be empty
+ *  - bootp flag 'P' -> mandatory fields other than filename and server may be empty
+ *  - bootp flag off -> need all mandatory fields
+ * otherwise, the index of the first offending parameter is returned.
+ */
+
+static int
+haveAllMandatory(NetConfigCtxt c, char override)
+{
+Parm	p;
+int		i,min,max;
+int		mode = 'Y';
+int		rval = -1;
+
+	min = max = 0;
+	p = c->parmList + BOOTP_EN_IDX;
+	if ( p->pval && *p->pval ) {
+		switch ((mode = toupper( **p->pval ))) {
+			case 'P':	max = SERVERIP_IDX + 1; break;
+			case 'N':	max = NUM_PARMS    + 1; break;
+			default: break; /* means 'Y' */
+		}
+	} else {
+		/* no value means BOOTP is ON */
+	}
+
+	/* did they manually override anything ? */
+	switch ( toupper(override) ) {
+		case 'P':	max = SERVERIP_IDX + 1; break;
+		case 'D':	max = 0;                break;
+		case 'M':	max = NUM_PARMS + 1;    break;
+		case 'B':	min = SERVERIP_IDX + 1;
+					max = NUM_PARMS + 1;
+					/* fall thru */
+		default:	break;
+		
+	}
+
+	if (override)
+		mode = override;
+
+	for (p=c->parmList+(i=min); i<max; p++,i++)
+		if ( (p->flags&FLAG_MAND) && (!p->pval || ! *p->pval) ) {
+			if (rval < 0)
+				rval = p-c->parmList; /* record the first offending one */
+			if (override) {
+				fprintf(stderr,"Unable to override with the '%c' key:\n", override);
+			}
+			fprintf(stderr,"A mandatory NVRAM field is missing");
+			if (override)
+				fprintf(stderr,".\nChoose a different key or provide the following from NVRAM:\n");
+			else {
+				fprintf(stderr," for BOOTP mode '%c'.\n", mode);
+				fprintf(stderr,"Choose a different mode or provide the following:\n\n");
+			}
+			do {
+				if ( (p->flags&FLAG_MAND) && (!p->pval || ! *p->pval) ) {
+					fprintf(stderr,"  ** '%.14s' **\n", p->prompt);
+				}
+				i++; p++;
+			} while (i<max);
+			return rval;
+		}
+
+	return -1;
+}
+
 
 static int
 showConfig(NetConfigCtxt c, int doReadNvram)
@@ -754,10 +826,10 @@ int  i;
 
 
 static int
-config(NetConfigCtxt c, int howmany)
+config(NetConfigCtxt c)
 {
-int  i;
-int  rval = 0;
+int  i,howmany;
+int  rval;
 Parm p;
 
 	fprintf(c->out,"Changing NVRAM configuration\n");
@@ -778,17 +850,15 @@ Parm p;
 
 for (p=c->parmList,i=0; p->name; p++)
 	/* nothing else to do */;
-i = p-c->parmList;
-
-if	(howmany<1)
-	howmany=1;
-else if	(howmany > i)
-	howmany = i;
+howmany = p-c->parmList;
 
 installHotkeys(c);
 
 i = 0;
-while ( i>=0 && i<howmany ) {
+
+do {
+
+for ( rval=0; i>=0 && i<howmany; ) {
 	switch ( callGet(c, i, 0 /* dont repeat */) ) {
 
 		case SPC_ESC:
@@ -817,18 +887,10 @@ while ( i>=0 && i<howmany ) {
 	}
 }
 
-uninstallHotkeys(c);
-
 /* make sure we have all mandatory parameters */
-for (p=c->parmList,i=0; p->name; p++,i++) {
-	if ( (p->flags&FLAG_MAND) ) {
-		while ( !*p->pval ) {
-			rval = 0;
-			fprintf(c->out,"Need parameter...\n");
-			callGet(c, i, 0);
-		}
-	}
-}
+} while ( (i=haveAllMandatory(c, 0)) >= 0 );
+
+uninstallHotkeys(c);
 
 /* make sure we have a reasonable auto_delay */
 {
@@ -1237,7 +1299,7 @@ NetConfigCtxtRec ctx;
 	readNVRAM(&ctx);
 	if ( !*ctx.parmList[CPU_TAU_IDX].pval )
 		tauOffsetHelp();
-	if ( (got=config(&ctx, 1000)) >= 0 ) {
+	if ( (got=config(&ctx)) >= 0 ) {
 		if (got > 0 || confirmed(&ctx) ) {
 			writeNVRAM(&ctx);
 		} else {

@@ -460,7 +460,8 @@ help(void)
 	printf("Press 'b' for manually entering filename/cmdline parameters only\n");
 	printf("Press '@' for continuing the netboot (DHCP flag from NVRAM)\n");
 	printf("Press 'd' for continuing the netboot; enforce using DHCP\n");
-	printf("Press 'p' for continuing the netboot; enforce using DHCP but use file and cmdline from NVRAM\n");
+	printf("Press 'p' for continuing the netboot; enforce using DHCP\n"
+           "          but use file and cmdline from NVRAM\n");
 	printf("Press 'm' for continuing the netboot; enforce using NVRAM config\n");
 #ifdef SPC_REBOOT
 	printf("Press 'R' to reboot now (you can always hit <Ctrl>-%c to reboot)\n",SPC2CHR(SPC_REBOOT));
@@ -474,8 +475,8 @@ rtems_task Init(
 {
 
   int tftpInited=0;
-  int manual=0;
-  int enforceBootp=0;
+  int manual;
+  int enforceBootp;
 
   char *cmd=0, *fn;
   char *username, *tmp=0;
@@ -485,6 +486,8 @@ rtems_task Init(
   Parm	p;
   int	i;
   NetConfigCtxtRec	ctx;
+  char	ch;
+  int	secs;
 
   /* copy static pointers into local buffer pointer array
    * (pointers in the ParmRec struct initializers are easier to maintain
@@ -518,11 +521,18 @@ rtems_task Init(
 	if ( !CPU_TAU_offset )
 		tauOffsetHelp();
 
+	/* it was previously verified that auto_delay_secs contains
+	 * a valid string...
+	 */
+	secs=strtoul(auto_delay_secs,0,0);
 
 	/* give them a chance to abort the netboot */
-	{
+	do {
 	struct termios ot,nt;
-	char ch;
+
+		manual = enforceBootp = 0;
+		ch = 0;
+
 		/* establish timeout using termios */
 		if (tcgetattr(0,&ot)) {
 			perror("TCGETATTR");
@@ -535,11 +545,6 @@ rtems_task Init(
 			if (tcsetattr(0,TCSANOW,&nt)) {
 				perror("TCSETATTR");
 			} else {
-				int secs;
-				/* it was previously verified that auto_delay_secs contains
-				 * a valid string...
-				 */
-				secs=strtoul(auto_delay_secs,0,0);
 				if (secs<=0) {
 					secs=-1;	/* forever */
 					help();		/* display options */
@@ -554,6 +559,8 @@ rtems_task Init(
 						fputc('\n',stderr);
 						manual=1;
 						break;
+					} else {
+						ch = 0;
 					}
 				}
 				fputc('\n',stderr);
@@ -568,7 +575,7 @@ rtems_task Init(
 							switch (ch) {
 								case 's':	manual=showConfig(&ctx, 1);
 									break;
-								case 'c':	if (config(&ctx, 1000) >=0)
+								case 'c':	if (config(&ctx) >=0)
 												writeNVRAM(&ctx);
 											manual = -1;
 									break;
@@ -593,7 +600,8 @@ rtems_task Init(
 				tcsetattr(0,TCSANOW,&ot);
 			}
 		}
-	}
+		secs = -1;
+	} while ( haveAllMandatory( &ctx, ch ) >=0 );
 
 	{
 		extern int yellowfin_debug;
