@@ -23,5 +23,7 @@ flashAdr(0x80000,2);
 r5=0; r6=0;
 		/* no command line (r3: start, r4: end+1) */
 r3=0; r4=0;
-		/* let it go */
+		/* let it go (0xfff80000 is the flash window address as seen
+         * from the CPU)
+         */
 g 0xfff80000;
