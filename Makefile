@@ -100,12 +100,18 @@ $(FINALTGT):	$(LINKOBJS) $(LINKBINS) $(LINKSCRIPT) $(MAKEFILE)
 #	$(LD) -o $(@:%.bin=%$(EXTENS)) $(LINKARGS)
 	$(RM) $(LINKBINS)
 
+ifndef RTEMS_SITE_INSTALLDIR
+RTEMS_SITE_INSTALLDIR = $(PROJECT_RELEASE)
+endif
+
 install: $(PROGELF) $(FINALTGT) $(SCRIPTS)
-	$(INSTALL_CHANGE) $^ $(INSTALLDIR)/$(RTEMS_BSP)/img
+	$(INSTALL_CHANGE) $^ $(RTEMS_SITE_INSTALLDIR)/$(RTEMS_BSP)/img
 
 clean:
 	$(RM) $(TMPIMG) $(LINKBINS) $(LINKOBJS)
 	$(MAKE) -f Makefile.rtems clean
+
+distclean: clean
 
 balla:
 	echo $(FINALTGT)

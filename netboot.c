@@ -655,6 +655,9 @@ int rval=0,i;
 	nval = readline(prompt);
 #endif
 	if (!*nval) {
+#ifdef USE_READLINE
+		free(nval);
+#endif
 		nval=0; /* discard empty answer */
 	}
 #ifndef USE_READLINE
