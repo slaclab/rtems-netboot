@@ -1,6 +1,9 @@
 int  ho="134.79.34.70"; int i;
-int ll="powerpc-rtems/svgm/img/netboot.flashimg.bin";
-int lc="powerpc-rtems/svgm/img/coredump.flashimg.bin";
+int ll="ssrlApps/powerpc-rtems/svgm/img/netboot.flashimg.bin";
+int lc="ssrlApps/powerpc-rtems/svgm/img/coredump.flashimg.bin";
+int s1="ssrlApps/powerpc-rtems/svgm/img/smonscript.st";
+int s2="ssrlApps/powerpc-rtems/svgm/img/coredump.st";
+int s3="ssrlApps/powerpc-rtems/svgm/img/reflash.st";
 void lwr(int fn,int a){
 printf("done\nLoading '%s' from '%s'\n",fn,ho);
 load(fn,0x10000,ho); printf("Writing FLASH ...");
@@ -8,7 +11,5 @@ flashwrite(a,r5,r6-r5,2); }
 printf("FLASHing with RTEMS loader\nERASING..."); flashwren(0);
 for (i=4; i<0xc; i++) flasheraseblock(i,2); lwr(ll,0x80000);
 lwr(lc,0x100000); printf("done\nLoading SMON scripts...");
-loadEB("powerpc-rtems/svgm/img/smonscript.st","rtems");
-loadEB("powerpc-rtems/svgm/img/coredump.st","coredump");
-loadEB("powerpc-rtems/svgm/img/reflash.st","reflash");
+loadEB(s1,"rtems");loadEB(s2,"coredump");loadEB(s3,"reflash");
 printf("done\nYou should reboot now\n");
