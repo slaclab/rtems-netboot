@@ -40,7 +40,7 @@ common to all boot methods:
   path: relative path to the boot file on the server.
         The path may end in a directory or be empty
         altogether.  In this case, the default filename
-        'rtems.bin' is appended to the path.
+        'rtems.exe' is appended to the path.
 
   hostspec: defines the boot file server. May either
         be a DNS name (provided that the boot parameters
@@ -70,8 +70,8 @@ are extracted from the BOOTP 'filename' answer.
 I.e., <path> is relative to <user>'s home directory.
 
 Examples:
-  server:~rtems/rtems-4.6.0/bin/rtems.bin
-  ~rtems	(* uses file 'rtems.bin' in user 'rtems' home dir *)
+  server:~rtems/rtems-4.6.0/bin/rtems.exe
+  ~rtems	(* uses file 'rtems.exe' in user 'rtems' home dir *)
 
 NFS download
 - - - - - - -
@@ -90,9 +90,9 @@ authentication on the NFS server can be provided
 (defaults to 0.0).
 
 Examples:
-  :/export/rtems:4.6.0/bin/rtems.bin
+  :/export/rtems:4.6.0/bin/rtems.exe
   1024.1024@192.168.2.12:/export/rtems:4.6.0/bin
-  1111@1111:/export/rtems:4.6.0/bin/rtems-test.bin
+  1111@1111:/export/rtems:4.6.0/bin/rtems-test.exe
   :/export/rtems:
 
 TFTP download
@@ -199,7 +199,7 @@ of the user flash:
 
 Now, we download the binary image of the loader into RAM:
 
-	SMon0> load "rtemsloader.img"
+	SMon0> load "netboot.flashimg.bin"
 	Received 376944 bytes in 6.0 seconds.
 	loaded img at 10000                                                                                                              
 	SMon0>
@@ -220,6 +220,24 @@ write the image to the second 512k bank of user flash (id 2)
 
 (NOTE: the registers r5, r6 must not have been tampered with
 since completion of the 'load' command)
+
+#############################################################
+NOTE:
+
+Programming the flash device has been made much easier by
+the 'reflash.st' script.
+	1) Edit the 'reflash.st' script to reflect the correct
+	   paths on the server. Optionally, a host IP string may
+	   be programmed (ho="xxx.xxx.xxx.xxx";). If this step
+	   is omitted, the host IP present in SMON's NVRAM configuration
+	   will be used.
+    2) LoadEB "<path_on_server>/reflash.st" "reflash"
+	3) ExecEB "reflash"
+
+This burns the flash and loads all necessary scripts. Beware: 'reflash.st'
+is reloaded also. Better make sure the correct version (i.e., the one
+with your local mods) is found.
+#############################################################
 
 STARTING THE RTEMS LOADER
 -------------------------
