@@ -505,6 +505,7 @@ rtems_task Init(
 
 	fprintf(stderr,"\n\nRTEMS bootloader by Till Straumann <strauman@slac.stanford.edu>\n");
 	fprintf(stderr,"$Id$\n");
+	fprintf(stderr,"CVS tag $Name$\n");
 
 	if (!readNVRAM(&ctx)) {
 		fprintf(stderr,"No valid NVRAM settings found - initializing\n");
