@@ -1362,8 +1362,7 @@ rtems_task Init(
 				char *v;
 				int		incr;
 
-				/* treat the file name special - we must probably use the full pathname */
-				v = parmList+FILENAME_IDX == p ? fn : *p->pval;
+				v = *p->pval;	
 
 				/* unused or empty parameter */
 				if (p->flags&FLAG_NOUSE || !v) continue;
