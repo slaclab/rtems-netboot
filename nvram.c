@@ -46,12 +46,16 @@
 #ifdef LIBBSP_POWERPC_SVGM_BSP_H
 #define NVRAM_START		((unsigned char*)0xffe9f000)				/* use pSOS area */
 #define NVRAM_END		((unsigned char*)0xffe9f4ff)				/* use pSOS area */
-#define NVRAM_STR_START	(NVRAM_START + 2*sizeof(unsigned short))
-/* CHANGE THE SIGNATURE WHEN CHANGING THE NVRAM LAYOUT */
-#define NVRAM_SIGN		0xcafe										/* signature/version */
+#elif defined(LIBBSP_POWERPC_MVME5500_BSP_H)
+#define NVRAM_START		((unsigned char*)0xf1110000)				/* use pSOS area */
+#define NVRAM_END		((unsigned char*)0xf1111000)				/* use pSOS area */
 #else
 #error This application (NVRAM code sections) only works on Synergy VGM BSP
 #endif
+
+/* CHANGE THE SIGNATURE WHEN CHANGING THE NVRAM LAYOUT */
+#define NVRAM_SIGN		0xcafe										/* signature/version */
+#define NVRAM_STR_START	(NVRAM_START + 2*sizeof(unsigned short))
 
 #define DELAY_MIN "0"	/* 0 means forever */
 #define DELAY_MAX "30"
