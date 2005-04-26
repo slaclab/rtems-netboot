@@ -50,6 +50,11 @@ extern unsigned long __zl_bss_end;
 extern unsigned long __zl_etext;
 extern unsigned long __zl_data_start;
 
+extern unsigned long __GOT2_START[];
+extern unsigned long __GOT2_END[];
+extern unsigned long *__FIXUP_START[];
+extern unsigned long *__FIXUP_END[];
+
 #define IMAGE_LEN	((unsigned)&__zl_len)
 
 #define EARLY_STACK_SIZE 10000
@@ -75,16 +80,59 @@ static void zlstop(unsigned v1, unsigned v2, unsigned v3);
 #endif
 
 /* memory beyond the stack is free */
-static void *free_mem;
+static void     *free_mem;
+
 static void gunzip();
 
 /* gcc -O4 doesn't preserve start() at the beginning */
 __asm__ ("  .globl _start; _start: b start");
 
+
+#if 0
+asm (
+	"   .globl getdiff\n"
+	"getdiff:         \n"
+	"	mflr 5\n"
+	"	bl   1f\n"
+	"1: mflr 4\n"
+	"	subf 3,3,4\n"
+	"	mtlr 5\n"
+	"   blr\n"
+	);
+
+void gotfix(unsigned adj)
+{
+unsigned *p, i = __GOT2_END - __GOT2_START;
+	for ( p = (unsigned *)((unsigned)__GOT2_START + adj); i>0; p++, i-- )
+		*p+=adj;
+}
+
+void fixup(unsigned adj)
+{
+unsigned **pp, i = __FIXUP_END - __FIXUP_START;
+	for ( pp = __FIXUP_START; pp < __FIXUP_END; pp++ )
+		**pp+=adj;
+}
+
+
+char *blah()
+{
+unsigned adj = getdiff((unsigned)getdiff + 8);
+
+	gotfix(adj);
+	fixup(adj);
+
+	return (x[0]);	
+}
+
+#endif
+
 /*
 void
 start(char *r3, char *r4, char *r5, char *r6) __attribute__ ((section(".text.start")));
 */
+
+
 
 void
 start(char *r3, char *r4, char *r5, char *r6)

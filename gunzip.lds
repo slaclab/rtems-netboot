@@ -18,6 +18,8 @@ SECTIONS {
 	_start = . ;
 		*(.text.start)
 		*(.text)
+		*(.fixup)
+		*(.got2)
 	} > CODE
 	__zl_etext = ALIGN ( 4 );
 

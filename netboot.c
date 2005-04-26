@@ -61,16 +61,6 @@ static int tftpInited    = 0;
 #include <ctrlx.h>
 /* define after including <bsp.h> */
 
-#ifdef LIBBSP_POWERPC_SVGM_BSP_H
-#define NVRAM_START		((unsigned char*)0xffe9f000)				/* use pSOS area */
-#define NVRAM_END		((unsigned char*)0xffe9f4ff)				/* use pSOS area */
-#define NVRAM_STR_START	(NVRAM_START + 2*sizeof(unsigned short))
-/* CHANGE THE SIGNATURE WHEN CHANGING THE NVRAM LAYOUT */
-#define NVRAM_SIGN		0xcafe										/* signature/version */
-#else
-#error This application (NVRAM code sections) only works on Synergy VGM BSP
-#endif
-
 #define DELAY_MIN "0"	/* 0 means forever */
 #define DELAY_MAX "30"
 #define DELAY_DEF "2"
@@ -950,11 +940,13 @@ rtems_task Init(
 #endif
 			);
 
+#if 0
 	{
 		extern int yellowfin_debug;
 		/* shut up the yellowfin */
 		yellowfin_debug=0;
 	}
+#endif
 
 	{
 			/* check if they want us to use bootp or not */

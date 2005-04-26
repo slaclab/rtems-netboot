@@ -1,10 +1,20 @@
 # REAL VALUES (for use in flash)
-FLASHSTART=0xfff80000
+# SVGM:
+#FLASHSTART=0xfff80000
+#DEST=0x100
+
+# mvme5500:
+FLASHSTART=0xf2000000
 DEST=0x100
 
 # DEBUGGING VALUES (make clean; make when changing these)
+# SVGM:
 #FLASHSTART=0x200000
 #DEST=0x10000
+
+# MVME5500: (claim memory with malloc from MotLoad)
+#FLASHSTART=0x4400000
+#DEST=0x4000000
 
 # Use a destination address > 0, e.g. 0x10000
 # for debugging. In this case, the image will
@@ -80,7 +90,7 @@ FINALTGT = $(PROGELF:%$(EXTENS)=%$(IMGEXT))
 
 #
 # "--just-symbols" files must be loaded _before_ the binary images
-LINKARGS=--defsym DEST=$(DEST) --defsym FLASHSTART=$(FLASHSTART) -T$(LINKSCRIPT) $(LINKOBJS) --just-symbols=$(call mkelf,netboot) -b binary  $(LINKBINS) 
+LINKARGS=--defsym DEST=$(DEST) --defsym FLASHSTART=$(FLASHSTART) -T$(LINKSCRIPT) $(LINKOBJS) --just-symbols=$(call mkelf,netboot) -bbinary $(LINKBINS) 
 
 all:	$(FINALTGT)
 
@@ -95,7 +105,7 @@ $(TMPIMG).gz: $(TMPIMG)
 	gzip -c9 $^ > $@
 
 gunzip.o: gunzip.c $(MAKEFILE)
-	$(CC) -c $(CFLAGS) -DDEST=$(DEST) -o $@ $<
+	$(CC) -c $(CFLAGS) -mrelocatable -G1000 -DDEST=$(DEST) -o $@ $<
 
 $(filter %netboot$(IMGEXT),$(FINALTGT)): $(LINKOBJS) $(LINKBINS) $(LINKSCRIPT) $(MAKEFILE)
 	$(RM) $@
