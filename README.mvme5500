@@ -1,0 +1,111 @@
+T. Straumann, 2005/4/26
+
+The 'netboot' loader is now also available for the MVME5500 board.
+A patch to the BSP is necessary so that 'netboot' can pass config
+parameters to the bootee. The necessary patch is applied in the
+'package/rtems/4.6.2-devel' area.
+Furthermore, more patches are needed to fix bugs which prevent
+this BSP from being booted properly (by 'chance' it works with
+MotLoad but not e.g., with motLoad's 'execProgram').
+
+The general description from README.vgmflash still applies
+EXCEPT for the sections about burning/programming the flash
+and starting the netboot program.
+
+The respective procedures for MVME5500 are as follows:
+
+I) Programming the Flash.
+-------------------------
+	a) Image File Creation
+       - - - - - - - - - -
+       The necessary image file is *NOT* netboot.flashimg.bin
+       as the name suggests. This image is in a format that
+	   can be executed directly out of flash. The MVME5500/MotLoad
+       does not permit code in flash to be executed. Therefore,
+	   a different image must be stored in flash, suitable
+       for execution out of RAM (i.e., for execution the image
+       must first be copied to RAM and then started, see below).
+
+       The image file can be created from the ELF object
+       'netboot.nxe' (usually found under
+	   'target/ssrlApps/powerpc-rtems/<BSP>/img'):
+
+		powerpc-rtems-objcopy -Obinary netboot.nxe netboot.img
+
+
+	b) Burning
+       - - - - 
+       Downloading the flash image and burning it is done
+       at the MotLoad command line prompt:
+
+          tftpGet -c<client> -s<server> <other parms> <path>/netboot.img
+
+       write down the load address and image size which must
+       be converted to hex. Note that the image size is also
+       required by the 'startup script', see below.
+
+       Now the flash is ready to be programmed - make sure
+       the target area is not used by other applications etc.
+
+	      flashProgram -s<load address> -n<image size> -v
+
+	   This burns the image to the start of flash0.
+
+       After burning the flash, the startup command must
+	   be checked for a change in image size since this
+	   information is needed for the 'bmw' block copy command.
+       
+	   BTW: Eric Norum wisely recommends to write-protect the
+	        MotLoad flash by removing the respective jumper
+			(I believe it is J15, RTM).
+
+II) Starting 'netboot'
+----------------------
+It is recommended to set the 'mot-scipt-boot' environment
+variable in order to automatically start netboot:
+
+   gevEdit mot-script-boot
+
+   netShut
+   bmw -a0xf2000000 -b<0xf2000000 + image size> -c0x04000000
+   go  -a0x04000000
+
+This chooses the start of the flash0 area. The image size
+must match the real image size (or exceed it). The target
+memory area (-c) must be available.
+
+Note that the 'netShut' command is important: Modern
+interface devices usually feature DMA busmasters and
+such a busmaster - if not stopped prior to starting RTEMS - 
+may corrupt a memory area that was designated as buffer
+space by MotLoad but has been taken over by the newly
+started application.
+
+III) NOTES
+----------
+
+MVME5500 BSP bug: A bug in the BSP causes applications loaded
+            by 'netboot' instead of 'motLoad' to hang/freeze
+			very early during the boot process [of the application,
+			not netboot's]. 
+			The bug has been fixed in 'package/rtems/4.6.2-devel'
+			area but if you suspect you experience this problem
+			you should contact me.
+
+MotLoad's 'execProgram' and 'netBoot':
+            Although these commands could theoretically be
+            used to boot RTEMS/mvme5500 this is not recommended.
+            These commands disable the caches. The BSP,
+            however was designed to inherit MotLoad's cache
+			settings and a very serious performance hit 
+			is the consequence of using 'execProgram/netBoot'.
+
+NVRAM usage: 'netboot' reserves/uses the first 4k block
+            of the NVRAM to store parameters. If this
+			is to be changed, the setting in 'nvram.c' 
+			can be changed.
+			NOTE: 'nvram.c' is also used by GeSys to
+			allow for reading/modifying the NVRAM from
+			the running GeSys prompt -- you must make
+			sure, GeSys and netboot share the same
+			version of 'nvram.c'!
