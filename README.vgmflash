@@ -15,7 +15,7 @@ RATIONALE:
   - having a dedicated loader would require adding networking
     support etc.
 
-The remote loader is a tiny RTEMS application which can be
+The remote loader is a RTEMS application which can be
 stored into VGM flash.
 
 When started, the loader tries to get the 

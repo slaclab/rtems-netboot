@@ -1,11 +1,11 @@
 # REAL VALUES (for use in flash)
 # SVGM:
-#FLASHSTART=0xfff80000
-#DEST=0x100
-
-# mvme5500:
-FLASHSTART=0xf2000000
+FLASHSTART=0xfff80000
 DEST=0x100
+
+# mvme5500: Not needed; we burn the uncompressed binary
+#FLASHSTART=0xf2000000
+#DEST=0x100
 
 # DEBUGGING VALUES (make clean; make when changing these)
 # SVGM:
@@ -104,14 +104,23 @@ $(TMPIMG).gz: $(TMPIMG)
 	$(RM) $@
 	gzip -c9 $^ > $@
 
+#self-relocation is still not fully implemented
+#RELOCOPTS=-mrelocatable -G1000
 gunzip.o: gunzip.c $(MAKEFILE)
-	$(CC) -c $(CFLAGS) -mrelocatable -G1000 -DDEST=$(DEST) -o $@ $<
+	$(CC) -c $(CFLAGS) $(RELOCOPTS) -DDEST=$(DEST) -o $@ $<
 
+ifeq ($(RTEMS_BSP),svgm)
 $(filter %netboot$(IMGEXT),$(FINALTGT)): $(LINKOBJS) $(LINKBINS) $(LINKSCRIPT) $(MAKEFILE)
 	$(RM) $@
 	$(LD) -o $@ $(LINKARGS) -Map map --oformat=binary
 #	$(LD) -o $(@:%.bin=%$(EXTENS)) $(LINKARGS)
 	$(RM) $(LINKBINS)
+else
+$(filter %netboot$(IMGEXT),$(FINALTGT)):%$(IMGEXT):%$(EXTENS)
+	$(RM) $@
+	$(OBJCOPY) -Obinary $^ $@
+endif
+
 
 $(filter %coredump$(IMGEXT),$(FINALTGT)):%$(IMGEXT):%$(EXTENS)
 	$(RM) $@

@@ -18,27 +18,15 @@ I) Programming the Flash.
 -------------------------
 	a) Image File Creation
        - - - - - - - - - -
-       The necessary image file is *NOT* netboot.flashimg.bin
-       as the name suggests. This image is in a format that
-	   can be executed directly out of flash. The MVME5500/MotLoad
-       does not permit code in flash to be executed. Therefore,
-	   a different image must be stored in flash, suitable
-       for execution out of RAM (i.e., for execution the image
-       must first be copied to RAM and then started, see below).
-
-       The image file can be created from the ELF object
-       'netboot.nxe' (usually found under
-	   'target/ssrlApps/powerpc-rtems/<BSP>/img'):
-
-		powerpc-rtems-objcopy -Obinary netboot.nxe netboot.img
-
+	   The image file 'netboot.flashimg.bin' is created as
+	   a result of the automatic build process.
 
 	b) Burning
        - - - - 
        Downloading the flash image and burning it is done
        at the MotLoad command line prompt:
 
-          tftpGet -c<client> -s<server> <other parms> <path>/netboot.img
+          tftpGet -c<client> -s<server> <other parms> -f<path>/netboot.flashimg.bin
 
        write down the load address and image size which must
        be converted to hex. Note that the image size is also
