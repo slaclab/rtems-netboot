@@ -43,8 +43,8 @@
 
 /* define after including <bsp.h> */
 
-#define NVRAM_START		BSP_NVRAM_BOOTPARMS_START
-#define NVRAM_END		BSP_NVRAM_BOOTPARMS_END
+#define NVRAM_START		((unsigned char*)(BSP_NVRAM_BOOTPARMS_START))
+#define NVRAM_END		((unsigned char*)(BSP_NVRAM_BOOTPARMS_END))
 
 /* CHANGE THE SIGNATURE WHEN CHANGING THE NVRAM LAYOUT */
 #define NVRAM_SIGN		0xcafe										/* signature/version */
@@ -947,10 +947,25 @@ unsigned char *jobs[3], **job;
 	dst=*pnvram;
 
 	for (job=jobs; *job; job++) {
+		if ( job>jobs && dst<NVRAM_END-1 ) {
+			/* opening quote */
+			sum += (*dst++='\'');
+		}
 		for (src=*job; *src && dst<NVRAM_END-1; ) {
+			/* handle quotes */
+			if ( '\'' == *src ) {
+				if ( dst >= NVRAM_END-2 )
+					goto err;
+				sum += (*dst++='\'');
+			}
 			sum += (*dst++=*src++);
 		}
+		if ( job>jobs && dst<NVRAM_END-1 ) {
+			/* closing quote */
+			sum += (*dst++='\'');
+		}
 
+err:
 		if (*src) {
 			fprintf(c->err,"WARNING: NVRAM overflow - not enough space\n");
 			**pnvram=0;
@@ -1034,8 +1049,28 @@ int				i;
 			unsigned char *val=++end;
 
 			/* look for the end of this parameter */
-			if ((end = strchr(end, ' ')))
+
+			if ( '\'' == *val ) {
+				char *src, *dst;
+				for (dst = val, src=val+1; *src; src++, dst++ ) {
+					if ( '\'' == (*dst = *src) ) {
+						if ( '\'' != *++src ) {
+							/* ending quote found; */
+							*dst = 0;
+							break;
+						}
+					}
+				}
+				end = src;
+				
+				if ( *dst ) {
+					fprintf(c->err,"WARNING: Unmatched opening quote\n");
+				}
+
+			} else {
+				if ( (end = strchr(end, ' ')) )
 					*end++=0; /* tag */
+			}
 
 			/* a valid parameter found */
 			for (p=c->parmList,i=0; p->name; p++, i++) {
