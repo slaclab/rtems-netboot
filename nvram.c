@@ -19,6 +19,10 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
+#ifdef __PPC__
+#include <libcpu/cpuIdent.h>
+#endif
+
 #include <unistd.h>
 
 #ifdef GET_RAW_INPUT
@@ -77,6 +81,7 @@
 #define FLAG_DUP		(1<<3)	/* field needs strdup at init time      */
 #define FLAG_BOOTP		(1<<4)  /* dont put into commandline when BOOTP active */
 #define FLAG_BOOTP_MAN	(1<<5)	/* DO put into commandline even when BOOTP active but manual override is effective */
+#define FLAG_UNSUPP		(1<<6)	/* Feature not supported; skip on all actions */
 
 
 typedef struct NetConfigCtxtRec_	*NetConfigCtxt;
@@ -112,7 +117,11 @@ readNVRAM(NetConfigCtxt c);
 static void
 writeNVRAM(NetConfigCtxt c);
 
-#define NUM_PARMS 18
+static int getString(GET_PROC_ARG_PROTO);
+static int getCmdline(GET_PROC_ARG_PROTO);
+static int getIpAddr(GET_PROC_ARG_PROTO);
+static int getUseBootp(GET_PROC_ARG_PROTO);
+static int getNum(GET_PROC_ARG_PROTO);
 
 #ifdef __INSIDE_NETBOOT__
 /* all kernel commandline parameters */
@@ -123,28 +132,30 @@ static char *bootparms=0;
 static char *srvname=0;
 /* image file name */
 static char *filename=0;
+/* interface + media */
+static char *bootif=0;
 
 /* flags need to strdup() these! */
 static char *use_bootp="Y";
 static char *auto_delay_secs=DELAY_DEF;
 static char *CPU_TAU_offset = 0;
-#else
-static char *strbuf[NUM_PARMS] = {0};
 #endif
-
-static int getString(GET_PROC_ARG_PROTO);
-static int getCmdline(GET_PROC_ARG_PROTO);
-static int getIpAddr(GET_PROC_ARG_PROTO);
-static int getUseBootp(GET_PROC_ARG_PROTO);
-static int getNum(GET_PROC_ARG_PROTO);
 
 #define FILENAME_IDX 0
 #define CMD_LINE_IDX 1
 #define SERVERIP_IDX 2
-#define MYIPADDR_IDX 4
-#define BOOTP_EN_IDX 15
-#define DELYSECS_IDX 16
-#define CPU_TAU_IDX  17
+#define MYIFNAME_IDX 4
+#define MYIPADDR_IDX 5
+#define BOOTP_EN_IDX 16
+#define DELYSECS_IDX 17
+#define CPU_TAU_IDX  18
+
+#define NUM_PARMS    19
+
+
+#ifndef __INSIDE_NETBOOT__
+static char *strbuf[NUM_PARMS] = {0};
+#endif
 
 /* The code assembling the kernel boot parameter line depends on the order
  * the parameters are listed.
@@ -193,11 +204,21 @@ static ParmRec parmList[NUM_PARMS+1]={
 			"Gateway IP:   >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP, 
 	},
-	{ "BP_MYIP=",
+	{ "BP_MYIF=",
 #ifdef __INSIDE_NETBOOT__
 			&eth_ifcfg.ip_address,
 #else
 			strbuf + 4,
+#endif
+			"My interface + media (e.g., 'em1:10baseT-FD' '2:auto')\n"
+			" >",
+			getString,		0,
+	},
+	{ "BP_MYIP=",
+#ifdef __INSIDE_NETBOOT__
+			&eth_ifcf.ip_address,
+#else
+			strbuf + 5,
 #endif
 			"My IP:        >",
 			getIpAddr,		FLAG_MAND| FLAG_CLRBP | FLAG_BOOTP,
@@ -206,7 +227,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&eth_ifcfg.ip_netmask,
 #else
-			strbuf + 5,
+			strbuf + 6,
 #endif
 			"My netmask:   >",
 			getIpAddr,		FLAG_MAND | FLAG_CLRBP | FLAG_BOOTP,
@@ -215,7 +236,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.hostname,
 #else
-			strbuf + 6,
+			strbuf + 7,
 #endif
 			"My name:      >",
 			getString,		FLAG_CLRBP | FLAG_BOOTP,
@@ -224,7 +245,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.domainname,
 #else
-			strbuf + 7,
+			strbuf + 8,
 #endif
 			"My domain:    >",
 			getString,		FLAG_CLRBP | FLAG_BOOTP,
@@ -233,7 +254,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.log_host,
 #else
-			strbuf + 8,
+			strbuf + 9,
 #endif
 			"Loghost IP:   >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
@@ -242,7 +263,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.name_server[0],
 #else
-			strbuf + 9,
+			strbuf + 10,
 #endif
 			"DNS server 1: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
@@ -251,7 +272,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.name_server[1],
 #else
-			strbuf + 10,
+			strbuf + 11,
 #endif
 			"DNS server 2: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
@@ -260,7 +281,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.name_server[2],
 #else
-			strbuf + 11,
+			strbuf + 12,
 #endif
 			"DNS server 3: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
@@ -269,7 +290,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.ntp_server[0],
 #else
-			strbuf + 12,
+			strbuf + 13,
 #endif
 			"NTP server 1: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
@@ -278,7 +299,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.ntp_server[1],
 #else
-			strbuf + 13,
+			strbuf + 14,
 #endif
 			"NTP server 2: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
@@ -287,7 +308,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.ntp_server[2],
 #else
-			strbuf + 14,
+			strbuf + 15,
 #endif
 			"NTP server 3: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
@@ -296,7 +317,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&use_bootp,
 #else
-			strbuf + 15,
+			strbuf + 16,
 #endif
 			"Use BOOTP: Yes, No or Partial (-> file and\n"
             "          command line from NVRAM) [Y/N/P]>",
@@ -306,7 +327,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&auto_delay_secs,
 #else
-			strbuf + 16,
+			strbuf + 17,
 #endif
 			"Autoboot Delay: ["
 					DELAY_MIN "..."
@@ -318,11 +339,11 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&CPU_TAU_offset,
 #else
-			strbuf + 17,
+			strbuf + 18,
 #endif
 			"CPU Temp. Calibration - (LEAVE IF UNSURE) >",
 			getNum,
-			0,
+			FLAG_UNSUPP,
 	},
 	{ 0, }
 };
@@ -689,7 +710,7 @@ int  retry = 1, result=0;
 				*pval=0;
 			} else {
 			for (i=0; c->parmList[i].name; i++) {
-				if (c->parmList[i].flags & FLAG_NOUSE)
+				if (c->parmList[i].flags & (FLAG_NOUSE | FLAG_UNSUPP))
 					continue; /* this name is not used */
 				if (strstr(*pval,c->parmList[i].name)) {
 					fprintf(c->err,"must not contain '%s' - this name is private for the bootloader\n",c->parmList[i].name);
@@ -770,8 +791,10 @@ int		rval = -1;
 	if (override)
 		mode = override;
 
-	for (p=c->parmList+(i=min); i<max; p++,i++)
-		if ( (p->flags&FLAG_MAND) && (!p->pval || ! *p->pval) ) {
+	for (p=c->parmList+(i=min); i<max; p++,i++) {
+		if ( p->flags & FLAG_UNSUPP )
+			continue;
+		if ( (p->flags & FLAG_MAND) && (!p->pval || ! *p->pval) ) {
 			if (rval < 0)
 				rval = p-c->parmList; /* record the first offending one */
 			if (override) {
@@ -785,13 +808,16 @@ int		rval = -1;
 				fprintf(stderr,"Choose a different mode or provide the following:\n\n");
 			}
 			do {
-				if ( (p->flags&FLAG_MAND) && (!p->pval || ! *p->pval) ) {
+				if (   !(p->flags & FLAG_UNSUPP) 
+				    &&  (p->flags&FLAG_MAND)
+				    &&  (!p->pval || ! *p->pval) ) {
 					fprintf(stderr,"  ** '%.14s' **\n", p->prompt);
 				}
 				i++; p++;
 			} while (i<max);
 			return rval;
 		}
+	}
 
 	return -1;
 }
@@ -809,6 +835,8 @@ int  i;
 				doReadNvram ? "NVRAM" : "Actual");
 		for (p=c->parmList, i=0; p->name; p++,i++) {
 			char *chpt;
+			if ( p->flags & FLAG_UNSUPP )
+				continue;
 			fputs("  ",c->out);
 			for (chpt=p->prompt; *chpt; chpt++) {
 				fputc(*chpt,c->out);
@@ -860,6 +888,10 @@ i = 0;
 do {
 
 for ( rval=0; i>=0 && i<howmany; ) {
+	if ( c->parmList[i].flags & FLAG_UNSUPP ) {
+		i++;
+		continue;
+	}
 	switch ( callGet(c, i, 0 /* dont repeat */) ) {
 
 		case SPC_ESC:
@@ -875,10 +907,12 @@ for ( rval=0; i>=0 && i<howmany; ) {
 		case SPC_STOP:  i=-1; rval = 1;
 		break;
 
-		case SPC_UP:	if (0==i)
-							i=howmany-1;
-						else
-							i--;
+		case SPC_UP:	do {
+							if (0==i)
+								i=howmany-1;
+							else
+								i--;
+						} while ( c->parmList[i].flags & FLAG_UNSUPP );
 		break;
 
 		/* SPC_REBOOT is processed directly by the handler  */
@@ -988,6 +1022,8 @@ int				i;
 
 		sum = 0;
 		for (p=c->parmList, i=0; p->name; p++,i++) {
+			if ( p->flags & FLAG_UNSUPP )
+				continue;
 			sum += appendNVRAM(c, &nvchpt, i);
 			*nvchpt=0;
 		}
@@ -1074,7 +1110,7 @@ int				i;
 
 			/* a valid parameter found */
 			for (p=c->parmList,i=0; p->name; p++, i++) {
-				if (strncmp(pch, p->name, val-pch))
+				if ( (p->flags & FLAG_UNSUPP) || strncmp(pch, p->name, val-pch) )
 				continue;
 					/* found the parameter */
 					free(*p->pval);
@@ -1096,6 +1132,8 @@ netConfigCtxtFinalize(NetConfigCtxt c)
 Parm p;
 
 	for (p = c->parmList; p->name; p++) {
+		if ( p->flags & FLAG_UNSUPP )
+			continue;
 		free(*p->pval);
 		*p->pval = 0;
 	}
@@ -1112,11 +1150,11 @@ Parm	p;
 
 	memset(c, 0, sizeof(*c));
 
-/* copy static pointers into local buffer pointer array
-   * (pointers in the ParmRec struct initializers are easier to maintain
-   * but we want the 'config/showConfig' routines to be re-entrant
-   * so they can be used by a full-blown system outside of 'netboot')
-   */
+	/* copy static pointers into local buffer pointer array
+	 * (pointers in the ParmRec struct initializers are easier to maintain
+	 * but we want the 'config/showConfig' routines to be re-entrant
+	 * so they can be used by a full-blown system outside of 'netboot')
+	 */
 
 	c->err    = stderr;
 	c->out    = f ? f : stdout;
@@ -1124,6 +1162,21 @@ Parm	p;
 
 	fn = tmp = malloc(500);
 	*fn = 0;
+
+
+	/* Filter unsupported parameters */
+
+#ifdef __PPC__
+	switch ( get_ppc_cpu_type() ) {
+		case PPC_750:
+		case PPC_7400:	/* others, including 7450+ don't have this */
+			parmList[CPU_TAU_IDX].flags &= ~FLAG_UNSUPP;
+			break;
+		
+		default:
+			break;
+	}
+#endif
 
 #ifdef USE_READLINE
 	rl_initialize();
@@ -1161,6 +1214,8 @@ Parm	p;
 	 * must be malloc()ed
 	 */
 	for (p = c->parmList; p->name; p++) {
+		if ( p->flags & FLAG_UNSUPP )
+			continue;
 		if ( (p->flags & FLAG_DUP) && *p->pval )
 				*p->pval = strdup(*p->pval);
 	}
@@ -1333,7 +1388,8 @@ NetConfigCtxtRec ctx;
 		return -1;
 	netConfigCtxtInitialize(&ctx,stdout);
 	readNVRAM(&ctx);
-	if ( !*ctx.parmList[CPU_TAU_IDX].pval )
+	if (   !(ctx.parmList[CPU_TAU_IDX].flags & FLAG_UNSUPP)
+		&& !*ctx.parmList[CPU_TAU_IDX].pval )
 		tauOffsetHelp();
 	if ( (got=config(&ctx)) >= 0 ) {
 		if (got > 0 || confirmed(&ctx) ) {
