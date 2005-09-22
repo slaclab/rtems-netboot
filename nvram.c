@@ -19,6 +19,8 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
+#include <rtems/rtesm_mii_ioctl.h>
+
 #ifdef __PPC__
 #include <libcpu/cpuIdent.h>
 #endif
@@ -210,9 +212,9 @@ static ParmRec parmList[NUM_PARMS+1]={
 #else
 			strbuf + 4,
 #endif
-			"My interface + media (e.g., 'em1:10baseT-FD' '2:auto')\n"
+			"My network port + media (e.g., '1:10baseT-FD' 'auto')\n"
 			" >",
-			getString,		0,
+			getMedia,		0,
 	},
 	{ "BP_MYIP=",
 #ifdef __INSIDE_NETBOOT__
@@ -540,6 +542,10 @@ int rval,i;
 #endif
 #endif
 	} while (SPC_RESTORE == rval);
+	if ( rval ) {
+		free(nval);
+		nval = 0;
+	}
 	*answer=nval;
 	return rval;
 }
@@ -688,6 +694,64 @@ int  result=0;
 	if (nval || !result) {
 		/* may also be a legal empty string */
 		free(*pval); *pval=nval;
+	}
+	return result;
+}
+
+static void
+mediahelp(FILE *f)
+{
+	fprintf(f,"Format: [[portno]:][media]\n");
+	fprintf(f,"  portno: number 1..n (board dependent limit)\n");
+	fprintf(f,"  media:  e.g.,  10[0[0]]bT[X][-full] (X required for 100bTX)\n");
+	fprintf(f,"  for other formats consult rtems_mii_ioctl.h\n");
+}
+
+static int
+getMedia(NetConfigCtxt c, char *what, char **pval, int mandatory)
+{
+char *nval = 0;
+char *col, *med;
+int result = 0, retry;
+int no;
+
+	do {
+		retry  = 0;
+		result = prompt(c, what, *pval, &nval);
+
+		if ( nval ) {
+			if ( '?' == *nval ) {
+				mediahelp(c->err);
+				retry = 1;
+			} else {
+				/* look at the new value */
+				if ( (col = strchr(nval,':')) ) {
+					/* check port# */
+					no = strtoul(nval,&med,0);
+					if (  (!med && col!=nval) /* no number but colon not 1st char */
+							|| (med && med!=col)  /* number doesn't end at colon      */
+							|| (med && no < 1)    /* invalid range should be (1..n)   */
+					   ) {
+						fprintf(c->err,"Invalid port number (use '?' entry for help)\n");
+						retry = 1;
+					}
+					/* now check the media string */
+					med = col ? col+1 : nval;
+					if ( *med && 0 == rtems_str2ifmedia(med, 0/* only support 1 phy */) ) {
+						fprintf(c->err,"Invalid media string (use '?' entry for help)\n");
+						retry = 1;
+					}
+				}
+			}
+		}
+		if ( retry ) {
+			free(nval);
+			nval = 0;
+		}
+	} while (!result && !nval && (mandatory || retry));
+	if ( nval || !result ) {
+		/* may also be a legal empty string */
+		free(*pval); *pval = nval;
 	}
 	return result;
 }
