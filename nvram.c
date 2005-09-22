@@ -216,7 +216,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 	},
 	{ "BP_MYIP=",
 #ifdef __INSIDE_NETBOOT__
-			&eth_ifcf.ip_address,
+			&eth_ifcfg.ip_address,
 #else
 			strbuf + 5,
 #endif
