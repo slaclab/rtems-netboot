@@ -19,7 +19,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-#include <rtems/rtesm_mii_ioctl.h>
+#include <rtems/rtems_mii_ioctl.h>
 
 #ifdef __PPC__
 #include <libcpu/cpuIdent.h>
@@ -119,6 +119,7 @@ readNVRAM(NetConfigCtxt c);
 static void
 writeNVRAM(NetConfigCtxt c);
 
+static int getMedia(GET_PROC_ARG_PROTO);
 static int getString(GET_PROC_ARG_PROTO);
 static int getCmdline(GET_PROC_ARG_PROTO);
 static int getIpAddr(GET_PROC_ARG_PROTO);
@@ -208,11 +209,11 @@ static ParmRec parmList[NUM_PARMS+1]={
 	},
 	{ "BP_MYIF=",
 #ifdef __INSIDE_NETBOOT__
-			&eth_ifcfg.ip_address,
+			&bootif,
 #else
 			strbuf + 4,
 #endif
-			"My network port + media (e.g., '1:10baseT-FD' 'auto')\n"
+			"My network port + media (e.g., '1:100baseTX-full')\n"
 			" >",
 			getMedia,		0,
 	},
@@ -703,7 +704,7 @@ mediahelp(FILE *f)
 {
 	fprintf(f,"Format: [[portno]:][media]\n");
 	fprintf(f,"  portno: number 1..n (board dependent limit)\n");
-	fprintf(f,"  media:  e.g.,  10[0[0]]bT[X][-full] (X required for 100bTX)\n");
+	fprintf(f,"  media:  (10[0[0]]bT[X][-full]) | auto (X required for 100bTX)\n");
 	fprintf(f,"  for other formats consult rtems_mii_ioctl.h\n");
 }
 
@@ -717,6 +718,7 @@ int no;
 
 	do {
 		retry  = 0;
+
 		result = prompt(c, what, *pval, &nval);
 
 		if ( nval ) {
@@ -728,19 +730,19 @@ int no;
 				if ( (col = strchr(nval,':')) ) {
 					/* check port# */
 					no = strtoul(nval,&med,0);
-					if (  (!med && col!=nval) /* no number but colon not 1st char */
-							|| (med && med!=col)  /* number doesn't end at colon      */
-							|| (med && no < 1)    /* invalid range should be (1..n)   */
+					/* med is never NULL */
+					if (    (med!=col)  /* number doesn't end at colon      */
+						 || (med > nval && no < 1)    /* invalid range should be (1..n)   */
 					   ) {
 						fprintf(c->err,"Invalid port number (use '?' entry for help)\n");
 						retry = 1;
 					}
-					/* now check the media string */
-					med = col ? col+1 : nval;
-					if ( *med && 0 == rtems_str2ifmedia(med, 0/* only support 1 phy */) ) {
-						fprintf(c->err,"Invalid media string (use '?' entry for help)\n");
-						retry = 1;
-					}
+				}
+				/* now check the media string */
+				med = col ? col+1 : nval;
+				if ( *med && strcmp(med,"auto") && 0 == rtems_str2ifmedia(med, 0/* only support 1 phy */) ) {
+					fprintf(c->err,"Invalid media string (use '?' entry for help)\n");
+					retry = 1;
 				}
 			}
 		}
