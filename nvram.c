@@ -709,7 +709,7 @@ int i;
 		fprintf(f,"Format: [[interface]:][media]\n");
 		fprintf(f,"  valid interfaces are:\n");
 		for ( i=0; d[i].name; i++ )
-			fprintf(f,"  %-5s: %s\n", d[i].name, d[i].description ? d[i].description : "");
+			fprintf(f,"    %-5s: %s\n", d[i].name, d[i].description ? d[i].description : "");
 	} else
 #endif
 		fprintf(f,"Format: [media]\n");
@@ -750,8 +750,10 @@ BSP_NetIFDesc d = BSP_HAS_MULTIPLE_NETIFS();
 						if ( !strncmp(d[i].name, nval, col-nval) )
 							break;
 					}
-					fprintf(c->err,"Invalid interface name (use '?' entry for help)\n");
+					if ( !d[i].name ) {
+						fprintf(c->err,"Invalid interface name (use '?' entry for help)\n");
 						retry = 1;
+					}
 				}
 #endif
 				/* now check the media string */
