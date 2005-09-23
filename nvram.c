@@ -213,7 +213,11 @@ static ParmRec parmList[NUM_PARMS+1]={
 #else
 			strbuf + 4,
 #endif
-			"My network port + media (e.g., '1:100baseTX-full')\n"
+#ifdef BSP_HAS_MULTIPLE_NETIFS
+			"My network IF + media (e.g., '100baseTX-full' ['?' for help])\n"
+#else
+			"My media (e.g., '100baseTX-full' ['?' for help])\n"
+#endif
 			"              >",
 			getMedia,		0,
 	},

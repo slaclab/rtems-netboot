@@ -58,7 +58,11 @@ DEST=0x100
 # -----------------------------------------
 # 
 
-APPS=netboot coredump
+APPS=netboot
+ifeq ($(RTEMS_BSP),svgm)
+#No point in making coredump for MotLoad BSPs; MotLoad clears all memory when booting
+APPS+=coredump
+endif
 
 mkelf=$(1:%=o-optimize/%$(EXTENS))
 

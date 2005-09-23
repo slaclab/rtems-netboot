@@ -33,7 +33,11 @@ SRCS=$(C_FILES) $(CC_FILES) $(H_FILES) $(S_FILES)
 OBJS=$(C_O_FILES) $(CC_O_FILES) $(S_O_FILES)
 
 
-APPS=netboot coredump
+APPS=netboot
+ifeq ($(RTEMS_BSP),svgm)
+#No point in making coredump for MotLoad BSPs; MotLoad clears all memory when booting
+APPS+=coredump
+endif
 
 # List of RTEMS managers to be included in the application goes here.
 # Use:
@@ -56,6 +60,18 @@ DEFINES += -DWINS_LINE_DISC ${DEFINES_${PGM}}
 # -DUSE_SHELL
 CPPFLAGS += -I. -I$(exec_prefix)/include
 CFLAGS += $(DEBUG)
+
+ifeq "$(RTEMS_BSP)" "mvme6100"
+#DEFINES  += -DRTEMS_BSP_NETWORK_DRIVER_NAME=\"pcn1\"
+#DEFINES  += -DRTEMS_BSP_NETWORK_DRIVER_ATTACH=rtems_pcn_attach
+#LD_LIBS  += -lif_pcn
+#DEFINES  += -DRTEMS_BSP_NETWORK_DRIVER_NAME=\"mve1\"
+#DEFINES  += -DRTEMS_BSP_NETWORK_DRIVER_ATTACH=rtems_mve_attach
+#DEFINES  += -DRTEMS_BSP_NETWORK_DRIVER_NAME=\"em1\"
+#DEFINES  += -DRTEMS_BSP_NETWORK_DRIVER_ATTACH=rtems_em_attach
+LD_LIBS   += -lbspExt
+endif
+
 
 #
 # CFLAGS_DEBUG_V are used when the `make debug' target is built.

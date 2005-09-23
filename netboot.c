@@ -16,6 +16,7 @@
 #define TFTP_OPEN_FLAGS (O_WRONLY)
 #endif
 
+
 #define DEBUG
 
 #include <string.h>
@@ -149,7 +150,23 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 rtems_task Init (rtems_task_argument argument);
 #include <confdefs.h>
 
-extern int rtems_bsdnet_loopattach();
+/* just in case */
+extern int
+RTEMS_BSP_NETWORK_DRIVER_ATTACH(/*struct rtems_bsdnet_ifconfig* */);
+
+extern int
+rtems_bsdnet_loopattach();
+
+#ifndef BARE_BOOTP_LOADER
+static void (*do_bootp)(void) = rtems_bsdnet_do_bootp;
+
+/* hook into rtems_bsdnet_initialize() after interfaces are attached */
+static void my_bootp_proc();
+
+static char *boot_if_media = 0;
+#else
+#define	my_bootp_proc rtems_bsdnet_do_bootp
+#endif
 
 static struct rtems_bsdnet_ifconfig lo_ifcfg = {
 	"lo0",
@@ -222,7 +239,7 @@ struct rtems_bsdnet_config rtems_bsdnet_config = {
        * if BOOTP is not being used.
       void                    (*bootp)(void);
        */
-	rtems_bsdnet_do_bootp,
+	my_bootp_proc,
 
       /*
        * The remaining items can be initialized to 0, in
@@ -570,6 +587,26 @@ help(void)
 	printf("Press any other key for this message\n");
 }
 
+static void
+my_bootp_proc()
+{
+int  media;
+	/* configure network media before doing bootp but after
+	 * the interface is attached.
+	 */
+	if ( boot_if_media && *boot_if_media ) {
+		/* valid media has been asserted */
+		media = rtems_str2ifmedia(boot_if_media, 0 /* 1st phy */);
+
+		if ( rtems_bsdnet_ifconfig(eth_ifcfg.name, SIOCSIFMEDIA, &media) ) {
+			perror("Setting interface media failed");
+		}
+	}
+	if ( do_bootp )
+		do_bootp();
+}
+
+
 #ifdef COREDUMP_APP
 
 static int
@@ -736,12 +773,14 @@ int  i;
 				char *v;
 				int		incr;
 
+				if ( (p->flags & (FLAG_NOUSE | FLAG_UNSUPP)) )
+					continue;
+
 				v = *ctx->parmList[i].pval;
 
 				/* unused or empty parameter */
-				if ( p->flags&FLAG_NOUSE			||
-					 !v								||
-					 ( rtems_bsdnet_config.bootp && 
+				if ( !v											  ||
+					 (  do_bootp                 && 
 						(p->flags & FLAG_BOOTP)  &&						/* should obtain this by bootp               */
 						! ((p->flags & FLAG_BOOTP_MAN) && (manual ||	/* AND it's not overridden manually          */
                                                       (2==enforceBootp) /*     nor by the enforceBootp value '2'     */
@@ -832,7 +871,7 @@ rtems_task Init(
 	}
 
 #ifndef COREDUMP_APP
-	if ( !CPU_TAU_offset )
+	if ( !(parmList[CPU_TAU_IDX].flags & FLAG_UNSUPP) && !CPU_TAU_offset )
 		tauOffsetHelp();
 
 	/* it was previously verified that auto_delay_secs contains
@@ -960,20 +999,41 @@ rtems_task Init(
 				sprintf(use_bootp, enforceBootp>0 ? (enforceBootp>1 ? "P" : "Y") : "N");
 			}
 			if (enforceBootp<0) {
-				rtems_bsdnet_config.bootp = 0;
+				do_bootp            = 0;
 				if (!manual) manual = -2;
 			} else {
 				/* clear the 'bsdnet' fields - it seems that the bootp subsystem
 				 * expects NULL pointers...
 				 */
 				for (p=ctx.parmList, i=0; p->name; p++, i++) {
-					if ( !(p->flags & FLAG_CLRBP) )
+					if ( !(p->flags & (FLAG_CLRBP | FLAG_UNSUPP)) )
 						continue;
 					free(*ctx.parmList[i].pval);
 					*ctx.parmList[i].pval = 0;
 				}
 
 			}
+	}
+
+#ifdef BSP_HAS_MULTIPLE_NETIFS
+	if ( bootif ) {
+		/* validation of the interface name has already been performed */
+		if ( (boot_if_media = strchr(bootif,':')) ) {
+			boot_if_media++;
+			eth_ifcfg.name = strdup(bootif);
+			*strchr(eth_ifcfg.name,':') = 0;
+		}
+	}
+#endif
+	if ( !boot_if_media )
+		boot_if_media = bootif;
+
+	if ( BSP_mem_size > 32*1024*1024 ) {
+		/* Some drivers are more hungry; increase mbuf space if
+		 * we have plenty of memory...
+		 */
+		rtems_bsdnet_config.mbuf_cluster_bytecount = BSP_mem_size >> 7;
+		rtems_bsdnet_config.mbuf_bytecount         = BSP_mem_size >> 8;
 	}
 
   	rtems_bsdnet_initialize_network(); 

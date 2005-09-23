@@ -45,7 +45,7 @@ I) Programming the Flash.
        
 	   BTW: Eric Norum wisely recommends to write-protect the
 	        MotLoad flash by removing the respective jumper
-			(I believe it is J15, RTM).
+			(I believe it is J9, RTM).
 
 II) Starting 'netboot'
 ----------------------
@@ -55,8 +55,12 @@ variable in order to automatically start netboot:
    gevEdit mot-script-boot
 
    netShut
-   bmw -a0xf2000000 -b<0xf2000000 + image size> -c0x04000000
-   go  -a0x04000000
+   bmw -af2000000 -b<f2000000 + image size> -c04000000
+   go  -a04000000
+
+================================================
+NOTE: on the mvme6100, the flash0 is at f4000000
+================================================
 
 This chooses the start of the flash0 area. The image size
 must match the real image size (or exceed it). The target
