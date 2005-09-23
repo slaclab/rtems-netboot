@@ -214,7 +214,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			strbuf + 4,
 #endif
 			"My network port + media (e.g., '1:100baseTX-full')\n"
-			" >",
+			"              >",
 			getMedia,		0,
 	},
 	{ "BP_MYIP=",
@@ -700,10 +700,19 @@ int  result=0;
 }
 
 static void
-mediahelp(FILE *f)
+mediahelp(FILE *f, void *arg)
 {
-	fprintf(f,"Format: [[portno]:][media]\n");
-	fprintf(f,"  portno: number 1..n (board dependent limit)\n");
+#ifdef BSP_HAS_MULTIPLE_NETIFS
+BSP_NetIFDesc d = arg;
+int i;
+	if (d) {
+		fprintf(f,"Format: [[interface]:][media]\n");
+		fprintf(f,"  valid interfaces are:\n");
+		for ( i=0; d[i].name; i++ )
+			fprintf(f,"  %-5s: %s\n", d[i].name, d[i].description ? d[i].description : "");
+	} else
+#endif
+		fprintf(f,"Format: [media]\n");
 	fprintf(f,"  media:  (10[0[0]]bT[X][-full]) | auto (X required for 100bTX)\n");
 	fprintf(f,"  for other formats consult rtems_mii_ioctl.h\n");
 }
@@ -714,7 +723,12 @@ getMedia(NetConfigCtxt c, char *what, char **pval, int mandatory)
 char *nval = 0;
 char *col, *med;
 int result = 0, retry;
-int no;
+
+#ifdef BSP_HAS_MULTIPLE_NETIFS
+BSP_NetIFDesc d = BSP_HAS_MULTIPLE_NETIFS();
+#else
+#define	d 0
+#endif
 
 	do {
 		retry  = 0;
@@ -723,21 +737,23 @@ int no;
 
 		if ( nval ) {
 			if ( '?' == *nval ) {
-				mediahelp(c->err);
+				mediahelp(c->err, d);
 				retry = 1;
 			} else {
+				col = 0;
+#ifdef BSP_HAS_MULTIPLE_NETIFS
 				/* look at the new value */
-				if ( (col = strchr(nval,':')) ) {
-					/* check port# */
-					no = strtoul(nval,&med,0);
-					/* med is never NULL */
-					if (    (med!=col)  /* number doesn't end at colon      */
-						 || (med > nval && no < 1)    /* invalid range should be (1..n)   */
-					   ) {
-						fprintf(c->err,"Invalid port number (use '?' entry for help)\n");
-						retry = 1;
+				if ( d && (col = strchr(nval,':')) ) {
+					int i;
+					/* check interface name */
+					for ( i = 0; d[i].name; i++ ) {
+						if ( !strncmp(d[i].name, nval, col-nval) )
+							break;
 					}
+					fprintf(c->err,"Invalid interface name (use '?' entry for help)\n");
+						retry = 1;
 				}
+#endif
 				/* now check the media string */
 				med = col ? col+1 : nval;
 				if ( *med && strcmp(med,"auto") && 0 == rtems_str2ifmedia(med, 0/* only support 1 phy */) ) {
