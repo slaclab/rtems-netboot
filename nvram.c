@@ -730,8 +730,6 @@ int result = 0, retry;
 
 #ifdef BSP_HAS_MULTIPLE_NETIFS
 BSP_NetIFDesc d = BSP_HAS_MULTIPLE_NETIFS();
-#else
-#define	d 0
 #endif
 
 	do {
@@ -741,7 +739,11 @@ BSP_NetIFDesc d = BSP_HAS_MULTIPLE_NETIFS();
 
 		if ( nval ) {
 			if ( '?' == *nval ) {
+#ifdef BSP_HAS_MULTIPLE_NETIFS
 				mediahelp(c->err, d);
+#else
+				mediahelp(c->err, 0);
+#endif
 				retry = 1;
 			} else {
 				col = 0;
