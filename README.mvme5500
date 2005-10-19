@@ -1,18 +1,25 @@
-T. Straumann, 2005/4/26
+T. Straumann, 2005/4/26, 2005/10/14
+
+All instructions below also apply to the MVME6100 combined BSP
+(i.e., the mvme6100 BSP supports both, the 6100 and the 5500 boards).
+The same 'netboot' binary supports both boards and can be found
+at '<top>/target/ssrlApps/powerpc-rtems/mvme6100/img/netboot.flashimg.bin'.
 
 The 'netboot' loader is now also available for the MVME5500 board.
-A patch to the BSP is necessary so that 'netboot' can pass config
-parameters to the bootee. The necessary patch is applied in the
+A patch to the mvme5500 BSP (but not the mvme6100 combo BSP) is necessary
+so that 'netboot' can pass config parameters to the bootee.
+The necessary patch is applied in the
 'package/rtems/4.6.2-devel' area.
 Furthermore, more patches are needed to fix bugs which prevent
-this BSP from being booted properly (by 'chance' it works with
-MotLoad but not e.g., with motLoad's 'execProgram').
+this BSP (i.e., the mvme5500 BSP) from being booted properly
+(by 'chance' it works with MotLoad but not e.g., with motLoad's
+'execProgram').
 
 The general description from README.vgmflash still applies
 EXCEPT for the sections about burning/programming the flash
 and starting the netboot program.
 
-The respective procedures for MVME5500 are as follows:
+The respective procedures for MVME5500/MVME6100 are as follows:
 
 I) Programming the Flash.
 -------------------------
@@ -40,12 +47,13 @@ I) Programming the Flash.
 	   This burns the image to the start of flash0.
 
        After burning the flash, the startup command must
-	   be checked for a change in image size since this
-	   information is needed for the 'bmw' block copy command.
+       be checked for a change in image size since this
+       information is needed for the 'bmw' block copy command.
        
-	   BTW: Eric Norum wisely recommends to write-protect the
-	        MotLoad flash by removing the respective jumper
-			(I believe it is J9, RTM).
+       BTW: Eric Norum wisely recommends to write-protect the
+            MotLoad flash by removing the respective jumper
+            (I believe it is J9, RTM). This is board-dependent,
+            i.e., the 6100 and 5500 are different - RTM.
 
 II) Starting 'netboot'
 ----------------------
@@ -60,9 +68,10 @@ variable in order to automatically start netboot:
    rs  -nr4 -d0
    go  -a04000000
 
-================================================
-NOTE: on the mvme6100, the flash0 is at f4000000
-================================================
+=================================================
+NOTE: on the mvme6100, the flash0 is at f4000000,
+      hence the 'bmw' command needs to be adapted.
+=================================================
 
 This chooses the start of the flash0 area. The image size
 must match the real image size (or exceed it). The target
@@ -78,28 +87,31 @@ started application.
 III) NOTES
 ----------
 
+All comments about mvme5500 BSP bugs do not apply to the mvme6100 BSP
+(which also supports the mvme5500 board).
+
 MVME5500 BSP bug: A bug in the BSP causes applications loaded
-            by 'netboot' instead of 'motLoad' to hang/freeze
-			very early during the boot process [of the application,
-			not netboot's]. 
-			The bug has been fixed in 'package/rtems/4.6.2-devel'
-			area but if you suspect you experience this problem
-			you should contact me.
+             by 'netboot' instead of 'motLoad' to hang/freeze
+             very early during the boot process [of the application,
+             not netboot's]. 
+             The bug has been fixed in 'package/rtems/4.6.2-devel'
+             area but if you suspect you experience this problem
+             you should contact me.
 
 MotLoad's 'execProgram' and 'netBoot':
-            Although these commands could theoretically be
-            used to boot RTEMS/mvme5500 this is not recommended.
-            These commands disable the caches. The BSP,
-            however was designed to inherit MotLoad's cache
-			settings and a very serious performance hit 
-			is the consequence of using 'execProgram/netBoot'.
+             Although these commands could theoretically be
+             used to boot RTEMS/mvme5500 this is not recommended.
+             These commands disable the caches. The BSP,
+             however was designed to inherit MotLoad's cache
+             settings and a very serious performance hit 
+             is the consequence of using 'execProgram/netBoot'.
 
 NVRAM usage: 'netboot' reserves/uses the first 4k block
-            of the NVRAM to store parameters. If this
-			is to be changed, the setting in 'nvram.c' 
-			can be changed.
-			NOTE: 'nvram.c' is also used by GeSys to
-			allow for reading/modifying the NVRAM from
-			the running GeSys prompt -- you must make
-			sure, GeSys and netboot share the same
-			version of 'nvram.c'!
+             of the NVRAM to store parameters. If this
+             is to be changed, the setting in 'nvram.c' 
+             can be changed.
+             NOTE: 'nvram.c' is also used by GeSys to
+             allow for reading/modifying the NVRAM from
+             the running GeSys prompt -- you must make
+             sure, GeSys and netboot share the same
+             version of 'nvram.c'!
