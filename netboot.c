@@ -1062,6 +1062,47 @@ rtems_task Init(
 	path_prefix=realloc(path_prefix, strlen(TFTP_PREPREFIX)+strlen(srvname)+2);
 	sprintf(path_prefix,"%s%s/",TFTP_PREPREFIX,srvname);
 
+#if 0 /* some parameters -- most notably the gateway are hard to retrieve :-(
+       * for now, just switch to 'P' -- the most important part is the command line
+       * anyways...
+       */
+	/* never use bootp on the bootee; we have all information */
+	strcpy(use_bootp,"N"); 
+	if ( do_bootp ) {
+		char *tmp;
+		do_bootp = 0;
+		/* fill BOOTP-obtained params back */
+
+		srvname = sip(&rtems_bsdnet_bootp_server_address);
+
+		rtems_bsdnet_config.gateway = 0 /* TODO; really hard to read this (not publicly cached) */;
+		/* cumbersome to do also: IP/Mask */
+
+		tmp = malloc(40);
+		if ( tmp && !gethostname(tmp,40) && *tmp)
+			rtems_bsdnet_config.hostname = tmp;
+		else
+			free(tmp);
+
+		if ( rtems_bsdnet_domain_name )
+			rtems_bsdnet_config.domainname = strdup( rtems_bsdnet_domain_name );
+
+		rtems_bsdnet_config.log_host = sip(&rtems_bsdnet_log_host_address);
+			
+		for ( i = 0; i < rtems_bsdnet_nameserver_count; i++ ) {
+			rtems_bsdnet_config.name_server[i] = sip(&rtems_bsdnet_nameserver[i]);
+		}
+
+		for ( i = 0; i < rtems_bsdnet_ntpserver_count; i++ ) {
+			rtems_bsdnet_config.ntp_server[i] = sip(&rtems_bsdnet_ntpserver[i]);
+		}
+
+	}
+#else
+	enforceBootp = 2;
+	strcpy(use_bootp,"P");
+#endif
+
 	doIt(manual, enforceBootp, &ctx);
 
   rtems_task_delete(RTEMS_SELF);

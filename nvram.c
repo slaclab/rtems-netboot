@@ -1360,6 +1360,15 @@ char buf[18];
 	fprintf(f,"%-15s%-16s\n",header,inet_ntop(AF_INET,pip,buf,sizeof(buf)));
 }
 
+static char *
+sip(struct in_addr *pip)
+{
+char *rval = 0;
+	if ( (pip->s_addr != INADDR_ANY) && (rval=malloc(20)) )
+		inet_ntop(AF_INET,pip,rval,20);
+	return rval;
+}
+
 static void
 note(FILE *f)
 {
