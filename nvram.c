@@ -1062,8 +1062,8 @@ unsigned short sum;
 unsigned char *jobs[3], **job;
 
 
-	jobs[0]=c->parmList[i_parm].name;
-	if ( ! (jobs[1]=*c->parmList[i_parm].pval) )
+	jobs[0]=(unsigned char*)c->parmList[i_parm].name;
+	if ( ! (jobs[1]=(unsigned char*)*c->parmList[i_parm].pval) )
 		return 0;
 	jobs[2]=0;
 
@@ -1132,7 +1132,8 @@ static int
 readNVRAM(NetConfigCtxt c)
 {
 unsigned short	sum,tag;
-unsigned char	*nvchpt=NVRAM_START, *str, *pch, *end;
+unsigned char	*nvchpt=NVRAM_START;
+char            *str, *pch, *end;
 Parm			p;
 int				i;
 
@@ -1148,7 +1149,7 @@ int				i;
 							tag);
 			return 0;
 	}
-	str=nvchpt;
+	str=(char*)nvchpt;
 	/* verify checksum */
 	while (*nvchpt && nvchpt<NVRAM_END)
 			sum+=*nvchpt++;
@@ -1172,7 +1173,7 @@ int				i;
 				goto cleanup;
 		}
 		if ( (end=strchr(pch,'=')) ) {
-			unsigned char *val=++end;
+			char *val=++end;
 
 			/* look for the end of this parameter */
 
@@ -1360,6 +1361,7 @@ char buf[18];
 	fprintf(f,"%-15s%-16s\n",header,inet_ntop(AF_INET,pip,buf,sizeof(buf)));
 }
 
+#if 0
 static char *
 sip(struct in_addr *pip)
 {
@@ -1368,6 +1370,7 @@ char *rval = 0;
 		inet_ntop(AF_INET,pip,rval,20);
 	return rval;
 }
+#endif
 
 static void
 note(FILE *f)
