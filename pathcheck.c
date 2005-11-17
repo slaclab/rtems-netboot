@@ -40,7 +40,7 @@ int help = 0, rc;
 		if ( (slash = strchr(path+6, '/')) ) {
 			char ch = *slash;
 			*slash = 0; /* assume path is not a constant string */
-			rc = inet_aton(path+6,&dummy) || !strcmp(path+6, "BOOTP_HOST");
+			rc = inet_pton(AF_INET,path+6,&dummy) || !strcmp(path+6, "BOOTP_HOST");
 			*slash = ch;
 			if ( rc )
 				return TFTP_PATH;

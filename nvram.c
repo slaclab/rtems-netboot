@@ -587,7 +587,7 @@ int		result=0;
 		/* Do they want something special ? */
 		result=prompt(c,p,*pval,&nval);
 		if (nval) {
-			if (!inet_aton(nval,&inDummy)) {
+			if (!inet_pton(AF_INET,nval,&inDummy)) {
 				fprintf(c->err,"Invalid address, try again\n");
 				free(nval); nval=0;
 				result = 0;
@@ -1217,6 +1217,8 @@ cleanup:
 }
 
 
+#ifndef __INSIDE_NETBOOT__
+
 static void
 netConfigCtxtFinalize(NetConfigCtxt c)
 {
@@ -1232,6 +1234,8 @@ Parm p;
 	del_GetLine(c->gl);
 #endif
 }
+
+#endif
 
 static void
 netConfigCtxtInitialize(NetConfigCtxt c, FILE *f)

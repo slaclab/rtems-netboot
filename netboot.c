@@ -4,6 +4,12 @@
  *  $Id$
  */
 
+#define ISMINVERSION(ma,mi,re) \
+	(    __RTEMS_MAJOR__  > (ma)	\
+	 || (__RTEMS_MAJOR__ == (ma) && __RTEMS_MINOR__  > (mi))	\
+	 || (__RTEMS_MAJOR__ == (ma) && __RTEMS_MINOR__ == (mi) && __RTEMS_REVISION__ >= (re)) \
+    )
+
 #define TFTP_PREPREFIX	"/TFTP/"
 #define TFTP_PREFIX		"/TFTP/BOOTP_HOST/"		/* filename to prepend when accessing the image via TFTPfs (only if "/TFTP/" not already present) */
 #define CMDPARM_PREFIX	"BOOTFILE="				/* if defined, 'BOOTFILE=<image filename>' will be added to the kernel commandline */
@@ -148,7 +154,11 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 
 #define CONFIGURE_INIT
 rtems_task Init (rtems_task_argument argument);
+#if ISMINVERSION(4,6,99)
+#include <rtems/confdefs.h>
+#else
 #include <confdefs.h>
+#endif
 
 /* just in case */
 extern int
