@@ -38,7 +38,7 @@ extern int rtems_bsdnet_loopattach(struct rtems_bsdnet_ifconfig*, int);
 /* parameter table for network setup - separate file because
  * copied from the bootloader
  */
-#include "bootpstuff.c"
+#include "nvram.c"
 
 static char *boot_my_media = 0;
 
@@ -53,7 +53,7 @@ char	*beg,*end,*buf;
 	buf = *pbuf;
 	*pbuf = 0;
 
-	parmList[BP_PARM_IDX].pval = pbuf;
+	parmList[CMD_LINE_IDX].pval = pbuf;
 
 	for (beg=buf; beg; beg=end) {
 		/* skip whitespace */
@@ -134,11 +134,11 @@ fillin_srvrandfile(void)
 		/* (dont bother freeing the old one - we don't really know if its malloced */
 		boot_filename = 0;
 	}
-	if (boot_cmdline) {
+	if (boot_parms) {
 		/* comments for boot_filename apply here as well */
-		bootp_cmdline = boot_cmdline;
+		bootp_cmdline = boot_parms;
 	} else {
-		boot_cmdline  = bootp_cmdline;
+		boot_parms  = bootp_cmdline;
 	}
 }
 
@@ -219,7 +219,7 @@ int   media;
 
 
 void 
-BSP_fixup_bsdnet_config()
+nvramFixupBsdnetConfig(int readNvram)
 {
 Parm	                     p;
 struct rtems_bsdnet_ifconfig *ifc;
@@ -227,6 +227,15 @@ struct rtems_bsdnet_ifconfig *ifc;
 	/* now hack into the network configuration... */
 
 	/* extract_boot_params() modifies the commandline string (part of the fixup) */
+	if ( readNvram ) {
+		NetConfigCtxtRec ctx;
+		
+		lock();
+		netConfigCtxtInitialize(&ctx,stdout,0);
+		readNVRAM(&ctx);
+		netConfigCtxtFinalize(&ctx);
+		unlock();
+	}
 
 	extract_boot_parms(&BSP_commandline_string);
 

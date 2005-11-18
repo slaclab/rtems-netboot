@@ -63,15 +63,19 @@ ifeq ($(RTEMS_BSP),svgm)
 #No point in making coredump for MotLoad BSPs; MotLoad clears all memory when booting
 APPS+=coredump
 endif
+APPS+=libnetboot
 
 mkelf=$(1:%=o-optimize/%$(EXTENS))
 
-PROGELF=$(foreach i,$(APPS),$(call mkelf,$i))
+PROGELF=$(foreach i,$(filter-out lib%,$(APPS)),$(call mkelf,$i))
+LIBRS  =$(patsubst lib%,$(ARCH)/lib%.a,$(filter lib%,$(APPS)))
 # must still terminate in ".bin"
 EXTENS=.nxe
 IMGEXT=.flashimg.bin
 TMPNAM=tmp
 MAKEFILE=Makefile
+
+HDRS = libnetboot.h
 
 SCRIPTS=smonscript.st reflash.st coredump.st
 
@@ -102,6 +106,9 @@ $(TMPIMG):	$(call mkelf,netboot)
 	$(OBJCOPY) -Obinary $^ $@
 
 $(PROGELF)::
+	$(MAKE) -f Makefile.rtems
+
+$(LIBRS)::
 	$(MAKE) -f Makefile.rtems
 
 $(TMPIMG).gz: $(TMPIMG)
@@ -137,8 +144,16 @@ endif
 $(RTEMS_SITE_INSTALLDIR)/img:
 	test -d $@ || mkdir -p $@
 
-install: $(PROGELF) $(FINALTGT) $(SCRIPTS) $(RTEMS_SITE_INSTALLDIR)/img/
+install-imgs: $(PROGELF) $(FINALTGT) $(SCRIPTS) $(RTEMS_SITE_INSTALLDIR)/img/
 	$(INSTALL_CHANGE) $^
+
+install-libs: $(LIBRS) $(RTEMS_SITE_INSTALLDIR)/lib/
+	$(INSTALL_CHANGE) $^
+
+install-hdrs: $(HDRS) $(RTEMS_SITE_INSTALLDIR)/include
+	$(INSTALL_CHANGE) $^
+
+install: install-imgs install-libs install-hdrs
 
 clean:
 	$(RM) $(TMPIMG) $(LINKBINS) $(LINKOBJS) map

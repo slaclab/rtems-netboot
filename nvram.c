@@ -68,6 +68,10 @@
 #define CTRL_R		022 /* ASCII DC2 */
 #define CTRL_X		030 /* ASCII CAN */
 
+#ifdef NDEBUG
+#error "assert() statements in have side-effects"
+#endif
+
 /* special answers */
 #define SPC_STOP		CTRL_G
 #define SPC_RESTORE		CTRL_R
@@ -129,20 +133,27 @@ static int getNum(GET_PROC_ARG_PROTO);
 #ifdef __INSIDE_NETBOOT__
 /* all kernel commandline parameters */
 static char *cmdline=0;
+#endif
 /* editable part of commandline */
-static char *bootparms=0;
+static char *boot_parms=0;
 /* server IP address */
-static char *srvname=0;
+static char *boot_srvname=0;
 /* image file name */
-static char *filename=0;
+static char *boot_filename=0;
 /* interface + media */
-static char *bootif=0;
+static char *boot_my_if=0;
+
+#ifndef __INSIDE_NETBOOT__
+/* my IP address */
+static char *boot_my_ip = 0;
+/* my netmask    */
+static char *boot_my_netmask = 0;
+#endif
 
 /* flags need to strdup() these! */
-static char *use_bootp="Y";
+static char *boot_use_bootp="Y";
 static char *auto_delay_secs=DELAY_DEF;
 static char *CPU_TAU_offset = 0;
-#endif
 
 #define FILENAME_IDX 0
 #define CMD_LINE_IDX 1
@@ -155,22 +166,13 @@ static char *CPU_TAU_offset = 0;
 
 #define NUM_PARMS    19
 
-
-#ifndef __INSIDE_NETBOOT__
-static char *strbuf[NUM_PARMS] = {0};
-#endif
-
 /* The code assembling the kernel boot parameter line depends on the order
  * the parameters are listed.
  * The prompts should be chosen in a way so the first ~14 chars make sense...
  */
 static ParmRec parmList[NUM_PARMS+1]={
 	{ "BP_FILE=",
-#ifdef __INSIDE_NETBOOT__
-		   	&filename,
-#else
-			strbuf + 0,
-#endif
+		   	&boot_filename,
 #ifndef COREDUMP_APP
 			"Boot file (e.g., '/TFTP/1.2.3.4/path', '~rshuser/path' or 'nfshost:/dir:path'):\n"
 #else
@@ -180,39 +182,23 @@ static ParmRec parmList[NUM_PARMS+1]={
 			getString,		FLAG_MAND | FLAG_BOOTP | FLAG_BOOTP_MAN,
 	},
 	{ "BP_PARM=",
-#ifdef __INSIDE_NETBOOT__
-		   	&bootparms,
-#else
-			strbuf + 1,
-#endif
+		   	&boot_parms,
 			"Command line parameters:\n"
 			" >",
 			getCmdline,		0 | FLAG_BOOTP | FLAG_BOOTP_MAN,
 	},
 	{ "BP_SRVR=",
-#ifdef __INSIDE_NETBOOT__
-			&srvname,
-#else
-			strbuf + 2,
-#endif
+			&boot_srvname,
 			"Server IP:    >",
 			getIpAddr,		FLAG_MAND | FLAG_BOOTP | FLAG_BOOTP_MAN,
 	},
 	{ "BP_GTWY=",
-#ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.gateway,
-#else
-			strbuf + 3,
-#endif
 			"Gateway IP:   >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP, 
 	},
 	{ "BP_MYIF=",
-#ifdef __INSIDE_NETBOOT__
-			&bootif,
-#else
-			strbuf + 4,
-#endif
+			&boot_my_if,
 #ifdef BSP_HAS_MULTIPLE_NETIFS
 			"My network IF + media (e.g., '100baseTX-full' ['?' for help])\n"
 #else
@@ -225,7 +211,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&eth_ifcfg.ip_address,
 #else
-			strbuf + 5,
+			&boot_my_ip,
 #endif
 			"My IP:        >",
 			getIpAddr,		FLAG_MAND| FLAG_CLRBP | FLAG_BOOTP,
@@ -234,108 +220,64 @@ static ParmRec parmList[NUM_PARMS+1]={
 #ifdef __INSIDE_NETBOOT__
 			&eth_ifcfg.ip_netmask,
 #else
-			strbuf + 6,
+			&boot_my_netmask,
 #endif
 			"My netmask:   >",
 			getIpAddr,		FLAG_MAND | FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_MYNM=",
-#ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.hostname,
-#else
-			strbuf + 7,
-#endif
 			"My name:      >",
 			getString,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_MYDN=",
-#ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.domainname,
-#else
-			strbuf + 8,
-#endif
 			"My domain:    >",
 			getString,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_LOGH=",
-#ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.log_host,
-#else
-			strbuf + 9,
-#endif
 			"Loghost IP:   >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_DNS1=",
-#ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.name_server[0],
-#else
-			strbuf + 10,
-#endif
 			"DNS server 1: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_DNS2=",
-#ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.name_server[1],
-#else
-			strbuf + 11,
-#endif
 			"DNS server 2: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_DNS3=",
-#ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.name_server[2],
-#else
-			strbuf + 12,
-#endif
 			"DNS server 3: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_NTP1=",
-#ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.ntp_server[0],
-#else
-			strbuf + 13,
-#endif
 			"NTP server 1: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_NTP2=",
-#ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.ntp_server[1],
-#else
-			strbuf + 14,
-#endif
 			"NTP server 2: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_NTP3=",
-#ifdef __INSIDE_NETBOOT__
 			&rtems_bsdnet_config.ntp_server[2],
-#else
-			strbuf + 15,
-#endif
 			"NTP server 3: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
 	{ "BP_ENBL=",
-#ifdef __INSIDE_NETBOOT__
-			&use_bootp,
-#else
-			strbuf + 16,
-#endif
+			&boot_use_bootp,
 			"Use BOOTP: Yes, No or Partial (-> file and\n"
             "          command line from NVRAM) [Y/N/P]>",
 			getUseBootp,	FLAG_DUP | FLAG_BOOTP,
 	},
 	{ "BP_DELY=",
-#ifdef __INSIDE_NETBOOT__
 			&auto_delay_secs,
-#else
-			strbuf + 17,
-#endif
 			"Autoboot Delay: ["
 					DELAY_MIN "..."
 					DELAY_MAX      "secs] (0==forever) >",
@@ -343,11 +285,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			FLAG_NOUSE | FLAG_DUP,
 	},
 	{ "BP_TAUO=",
-#ifdef __INSIDE_NETBOOT__
 			&CPU_TAU_offset,
-#else
-			strbuf + 18,
-#endif
 			"CPU Temp. Calibration - (LEAVE IF UNSURE) >",
 			getNum,
 			FLAG_UNSUPP,
@@ -1224,11 +1162,17 @@ netConfigCtxtFinalize(NetConfigCtxt c)
 {
 Parm p;
 
-	for (p = c->parmList; p->name; p++) {
-		if ( p->flags & FLAG_UNSUPP )
-			continue;
-		free(*p->pval);
-		*p->pval = 0;
+	/* if it's cloned then release the array of pointers and the copy */
+	if ( c->parmList != parmList ) {
+		for (p = c->parmList; p->name; p++) {
+			if ( p->flags & FLAG_UNSUPP )
+				continue;
+			free(*p->pval);
+			*p->pval = 0;
+		}
+		free(c->parmList[0].pval);
+		free(c->parmList);
+		c->parmList = 0;
 	}
 #ifndef USE_READLINE
 	del_GetLine(c->gl);
@@ -1238,22 +1182,16 @@ Parm p;
 #endif
 
 static void
-netConfigCtxtInitialize(NetConfigCtxt c, FILE *f)
+netConfigCtxtInitialize(NetConfigCtxt c, FILE *f, int doClone)
 {
-char	*tmp, *fn;
+char	*tmp, *fn, **pstrs = 0;
 Parm	p;
+int		n;
 
 	memset(c, 0, sizeof(*c));
 
-	/* copy static pointers into local buffer pointer array
-	 * (pointers in the ParmRec struct initializers are easier to maintain
-	 * but we want the 'config/showConfig' routines to be re-entrant
-	 * so they can be used by a full-blown system outside of 'netboot')
-	 */
-
 	c->err    = stderr;
 	c->out    = f ? f : stdout;
-	c->parmList = parmList;
 
 	fn = tmp = malloc(500);
 	*fn = 0;
@@ -1305,13 +1243,32 @@ Parm	p;
 
 	free(tmp);
 
+	/* copy static pointers into local buffer pointer array
+	 * (pointers in the ParmRec struct initializers are easier to maintain
+	 * but we want the 'config/showConfig' routines to be re-entrant
+	 * so they can be used by a full-blown system outside of 'netboot')
+	 */
+	if ( doClone ) {
+		assert ( (c->parmList = malloc(sizeof(parmList))) && (pstrs = malloc(sizeof(*pstrs) * NUM_PARMS)) );
+		for ( p = c->parmList, n = 0; 1;p++, n++ ) {
+			*p = parmList[n];
+			if ( !p->name )
+				break;
+			/* copy pointer to string; chars will be cloned below */
+			pstrs[n] = *p->pval;
+			p->pval = pstrs + n;
+		}
+	} else {
+		c->parmList = parmList;
+	}
+
 	/* initialize buffers; all configuration variables
 	 * must be malloc()ed
 	 */
 	for (p = c->parmList; p->name; p++) {
 		if ( p->flags & FLAG_UNSUPP )
 			continue;
-		if ( (p->flags & FLAG_DUP) && *p->pval )
+		if ( (doClone || (p->flags & FLAG_DUP)) && *p->pval )
 				*p->pval = strdup(*p->pval);
 	}
 }
@@ -1437,7 +1394,7 @@ NetConfigCtxtRec ctx;
 		return -1;
 	if (!f)
 		f = stdout;
-	netConfigCtxtInitialize(&ctx,f);
+	netConfigCtxtInitialize(&ctx,f,1);
 	showConfig(&ctx, 1);
 	netConfigCtxtFinalize(&ctx);
 	unlock();
@@ -1492,7 +1449,7 @@ NetConfigCtxtRec ctx;
 	
 	if (lock())
 		return -1;
-	netConfigCtxtInitialize(&ctx,stdout);
+	netConfigCtxtInitialize(&ctx,stdout,1);
 	readNVRAM(&ctx);
 	if (   !(ctx.parmList[CPU_TAU_IDX].flags & FLAG_UNSUPP)
 		&& !*ctx.parmList[CPU_TAU_IDX].pval )

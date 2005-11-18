@@ -6,17 +6,18 @@
 #
 
 # C source names, if any, go here -- minus the .c
-C_PIECES_netboot=netboot ctrlx term nvram
-C_PIECES_coredump=coredump ctrlx term nvram
+C_PIECES_netboot=netboot ctrlx term 
+C_PIECES_coredump=coredump ctrlx term 
+C_PIECES_libnetboot=fixup_net_config
 
-C_PIECES=$(C_PIECES_$(PGM))
+C_PIECES=$(C_PIECES_$(PGM)) $(C_PIECES_$(LIB))
 C_O_FILES=${C_PIECES:%=${ARCH}/%.o}
 C_FILES=$(C_PIECES:%=%.c)
 
 # link from the subdir
 # C++ source names, if any, go here -- minus the .cc
 
-CC_PIECES=$(CC_PIECES_$(PGM))
+CC_PIECES=$(CC_PIECES_$(PGM)) $(CC_PIECES_$(LIB))
 CC_FILES=$(CC_PIECES:%=%.cc)
 CC_O_FILES=$(CC_PIECES:%=${ARCH}/%.o)
 
@@ -25,7 +26,7 @@ H_FILES=
 # Assembly source names, if any, go here -- minus the .S
 S_PIECES_coredump=boot
 
-S_PIECES=$(S_PIECES_$(PGM))
+S_PIECES=$(S_PIECES_$(PGM)) $(S_PIECES_$(LIB))
 S_FILES=$(S_PIECES:%=%.S)
 S_O_FILES=$(S_FILES:%.S=${ARCH}/%.o)
 
@@ -39,6 +40,8 @@ ifeq ($(RTEMS_BSP),svgm)
 APPS+=coredump
 endif
 
+LIBRS=libnetboot
+
 # List of RTEMS managers to be included in the application goes here.
 # Use:
 #     MANAGERS=all
@@ -49,14 +52,15 @@ MANAGERS=all
 include $(RTEMS_MAKEFILE_PATH)/Makefile.inc
 
 include $(RTEMS_CUSTOM)
-include $(RTEMS_ROOT)/make/leaf.cfg
+#include $(RTEMS_ROOT)/make/leaf.cfg
+include $(RTEMS_ROOT)/make/lib.cfg
 
 #
 # (OPTIONAL) Add local stuff here using +=
 #
 DEFINES_coredump += -DCOREDUMP_APP
 
-DEFINES += -DWINS_LINE_DISC ${DEFINES_${PGM}}
+DEFINES += -DWINS_LINE_DISC ${DEFINES_${PGM}} ${DEFINES_${LIB}}
 # -DUSE_SHELL
 CPPFLAGS += -I. -I$(exec_prefix)/include
 CFLAGS += $(DEBUG)
@@ -88,37 +92,58 @@ LDFLAGS += -Wl,-Map,$(ARCH)/${PGM}.linkmap ${LDFLAGS_${PGM}} -Wl,-u,inet_pton -W
 CLEAN_ADDITIONS += term.c
 CLOBBER_ADDITIONS +=
 
-all:	${ARCH} $(SRCS) $(APPS)
+all:	${ARCH} $(SRCS) $(APPS) $(LIBRS)
+	@echo all: $^
 
-.PHONY: $(APPS)
+.PHONY: $(APPS) $(LIBS)
 
 
-define m-debug
+define mp-debug
 	echo MAKING $(PGM)
 	echo OBJS $(OBJS)
 	echo PREQS $^
 endef
 
+define ml-debug
+	echo MAKING $(LIB)
+	echo OBJS $(OBJS)
+	echo PREQS $^
+endef
+
+
 
 $(APPS):%:$(ARCH)/%.exe
+
+$(LIBRS):%:$(ARCH)/%.a
 
 # each APP needs to set PGM because target dependent variable settings
 # are **not** expanded in the prerequisites :-( :-(
 # AND the target specific variable definition is necessary to override
 # the value used by the commands :-(. Ugly
 netboot:PGM=netboot
+netboot:LIB=
 PGM:=netboot
+LIB:=
 $(ARCH)/$(PGM).exe: $(OBJS) $(LINKFILES)
 	$(make-exe)
 
 coredump:PGM=coredump
+coredump:LIB=
 PGM:=coredump
+LIB:=
 $(ARCH)/$(PGM).exe: $(OBJS) $(LINKFILES)
 	$(make-exe)
 
+libnetboot:LIB=libnetboot
+libnetboot:PGM=
+LIB:=libnetboot
+PGM:=
+$(ARCH)/$(LIB).a: $(OBJS)
+	$(make-library)
 
 $(ARCH)/netboot.o: nvram.c pathcheck.c
 $(ARCH)/coredump.o: nvram.c pathcheck.c
+$(ARCH)/fixup_net_config.o: nvram.c
 
 term.c: termsize/term.c
 	ln -s $^ $@

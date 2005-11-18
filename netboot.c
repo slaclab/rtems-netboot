@@ -644,8 +644,8 @@ unsigned long start,end;
 char buf[4];
 
 	while (1) {
-		free(filename);
-		filename = 0;
+		free(boot_filename);
+		boot_filename = 0;
 
 		if (fd > -1) {
 			close(fd);
@@ -654,7 +654,7 @@ char buf[4];
 
 		do {
 			callGet(ctx, FILENAME_IDX, 1 /* loop until valid answer */);
-		} while ( (fd=isTftpPath(&srvname, filename, &dummy, 0)) < 0 );
+		} while ( (fd=isTftpPath(&boot_srvname, boot_filename, &dummy, 0)) < 0 );
 		do {
 			while ( getNum(ctx, "Enter Start Address> ", &sstr, 1) )
 				;
@@ -703,23 +703,23 @@ int  fd,errfd;
 Parm p;
 int  i;
 	for (;1;manual=1) {
-		if (manual>0  || !filename) {
+		if (manual>0  || !boot_filename) {
 			if (!manual)
 				fprintf(stderr,"Didn't get a filename from BOOTP server\n");
 			callGet(ctx, FILENAME_IDX, 1 /* loop until valid answer */);
 		}
 
-		if ( strchr(filename,'~') ) {
+		if ( strchr(boot_filename,'~') ) {
 			do {
-				if ( manual>0 || ( !srvname && '~'==*filename ) ) {
-					if (!srvname)
+				if ( manual>0 || ( !boot_srvname && '~'==*boot_filename ) ) {
+					if (!boot_srvname)
 						fprintf(stderr,"Unable to convert server address to name\n");
 					callGet(ctx, SERVERIP_IDX, 1/*loop until valid*/);
 				}
-			} while ( -10 == (fd = isRshPath(&srvname, filename, &errfd, 0)) );
+			} while ( -10 == (fd = isRshPath(&boot_srvname, boot_filename, &errfd, 0)) );
 		} else {
 			releaseMount( 0 );
-		 	if ( (fd = isNfsPath(&srvname, filename, &errfd, 0, 0)) < -10 ) {
+		 	if ( (fd = isNfsPath(&boot_srvname, boot_filename, &errfd, 0, 0)) < -10 ) {
 				if ( -2 == fd ) {
 					/* not strictly necessary here - just to remind us that
 					 * the file couldn't be opened but the mount was OK
@@ -727,7 +727,7 @@ int  i;
 					fprintf(stderr,"NFS mount OK but file couldn't be opened\n");
 					releaseMount( 0 );
 				}
-				fd = isTftpPath(&srvname, filename, &errfd, 0);
+				fd = isTftpPath(&boot_srvname, boot_filename, &errfd, 0);
 			}
 		}
 
@@ -742,27 +742,27 @@ int  i;
 		{
 			int 	len;
 			char	*quoted=0;
-			char	*unquoted=bootparms;
+			char	*unquoted=boot_parms;
 			char	*src,*dst;
 
 			free(cmdline);
 			cmdline=0;
 
-			len = bootparms ? strlen(bootparms) : 0;
+			len = boot_parms ? strlen(boot_parms) : 0;
 
 			/* we quote the apostrophs */
 
-			if (bootparms) {
+			if (boot_parms) {
 				/* count ' occurrence */
-				for (src = bootparms + len - 1;
-					 src >= bootparms;
+				for (src = boot_parms + len - 1;
+					 src >= boot_parms;
 					 src--) {
 					if ('\'' == *src)
 							len++;
 				}
 
 				quoted = malloc(len + 2 + 1); /* opening/ending quote + \0 */
-				src = bootparms;
+				src = boot_parms;
 				dst=quoted;
 				*dst++ = '\'';
 				do {
@@ -771,10 +771,10 @@ int  i;
 				} while ( (*dst++ = *src++) );
 				*dst-- = 0;
 				*dst   = '\'';
-				bootparms = quoted;
+				boot_parms = quoted;
 			} else if (manual>0 || 2==enforceBootp) {
 				/* they manually force 'no commandline' */
-				bootparms = quoted = strdup("''");
+				boot_parms = quoted = strdup("''");
 			}
 
 
@@ -810,7 +810,7 @@ int  i;
 				len+=incr;
 			}
 		fprintf(stderr,"Hello, this is the RTEMS remote loader; trying to load '%s'\n",
-						filename);
+						boot_filename);
 
 #if defined(DEBUG)
 		fprintf(stderr,"Appending Commandline:\n");
@@ -823,7 +823,7 @@ int  i;
 		close(fd);
 		fd = -1;
 		if (quoted) {
-			bootparms = unquoted;
+			boot_parms = unquoted;
 			free(quoted);
 		}
 		}
@@ -861,7 +861,7 @@ rtems_task Init(
 	ansiTiocGwinszInstall(7);
 #endif
 
-	netConfigCtxtInitialize(&ctx, stdout);
+	netConfigCtxtInitialize(&ctx, stdout, 0);
 
 #define SADR rtems_bsdnet_bootp_server_address
 #define BOFN rtems_bsdnet_bootp_boot_file_name
@@ -1000,13 +1000,13 @@ rtems_task Init(
 	{
 			/* check if they want us to use bootp or not */
 			if (!enforceBootp) {
-				switch ( toupper(*use_bootp) ) {
+				switch ( toupper(*boot_use_bootp) ) {
 					default:  enforceBootp = 1;  break;
 					case 'N': enforceBootp = -1; break;
 					case 'P': enforceBootp = 2;  break;
 				}
 			} else {
-				sprintf(use_bootp, enforceBootp>0 ? (enforceBootp>1 ? "P" : "Y") : "N");
+				sprintf(boot_use_bootp, enforceBootp>0 ? (enforceBootp>1 ? "P" : "Y") : "N");
 			}
 			if (enforceBootp<0) {
 				do_bootp            = 0;
@@ -1026,17 +1026,17 @@ rtems_task Init(
 	}
 
 #ifdef BSP_HAS_MULTIPLE_NETIFS
-	if ( bootif ) {
+	if ( boot_my_if ) {
 		/* validation of the interface name has already been performed */
-		if ( (boot_if_media = strchr(bootif,':')) ) {
+		if ( (boot_if_media = strchr(boot_my_if,':')) ) {
 			boot_if_media++;
-			eth_ifcfg.name = strdup(bootif);
+			eth_ifcfg.name = strdup(boot_my_if);
 			*strchr(eth_ifcfg.name,':') = 0;
 		}
 	}
 #endif
 	if ( !boot_if_media )
-		boot_if_media = bootif;
+		boot_if_media = boot_my_if;
 
 	if ( BSP_mem_size > 32*1024*1024 ) {
 		/* Some drivers are more hungry; increase mbuf space if
@@ -1054,36 +1054,36 @@ rtems_task Init(
 		/* 'p' --> skip filename/bootparams */
 		if ( 2 != enforceBootp ) {
 			if (BOFN) {
-				free(filename);
-				filename=strdup(BOFN);
+				free(boot_filename);
+				boot_filename=strdup(BOFN);
 			}
-			free(bootparms);
-			bootparms = BCMD && *BCMD ? strdup(BCMD) : 0;
+			free(boot_parms);
+			boot_parms = BCMD && *BCMD ? strdup(BCMD) : 0;
 		}
 
-		srvname = strdup("xxx.xxx.xxx.xxx.");
-		if (!inet_ntop(AF_INET,&SADR,srvname,strlen(srvname))) {
-			free(srvname);
-			srvname=0;
+		boot_srvname = strdup("xxx.xxx.xxx.xxx.");
+		if (!inet_ntop(AF_INET,&SADR,boot_srvname,strlen(boot_srvname))) {
+			free(boot_srvname);
+			boot_srvname=0;
 		}
 	}
 
 	/* rebuild path_prefix */
-	path_prefix=realloc(path_prefix, strlen(TFTP_PREPREFIX)+strlen(srvname)+2);
-	sprintf(path_prefix,"%s%s/",TFTP_PREPREFIX,srvname);
+	path_prefix=realloc(path_prefix, strlen(TFTP_PREPREFIX)+strlen(boot_srvname)+2);
+	sprintf(path_prefix,"%s%s/",TFTP_PREPREFIX,boot_srvname);
 
 #if 0 /* some parameters -- most notably the gateway are hard to retrieve :-(
        * for now, just switch to 'P' -- the most important part is the command line
        * anyways...
        */
 	/* never use bootp on the bootee; we have all information */
-	strcpy(use_bootp,"N"); 
+	strcpy(boot_use_bootp,"N"); 
 	if ( do_bootp ) {
 		char *tmp;
 		do_bootp = 0;
 		/* fill BOOTP-obtained params back */
 
-		srvname = sip(&rtems_bsdnet_bootp_server_address);
+		boot_srvname = sip(&rtems_bsdnet_bootp_server_address);
 
 		rtems_bsdnet_config.gateway = 0 /* TODO; really hard to read this (not publicly cached) */;
 		/* cumbersome to do also: IP/Mask */
@@ -1110,7 +1110,7 @@ rtems_task Init(
 	}
 #else
 	enforceBootp = 2;
-	strcpy(use_bootp,"P");
+	strcpy(boot_use_bootp,"P");
 #endif
 
 	doIt(manual, enforceBootp, &ctx);
