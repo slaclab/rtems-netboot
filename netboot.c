@@ -1109,8 +1109,10 @@ rtems_task Init(
 
 	}
 #else
-	enforceBootp = 2;
-	strcpy(boot_use_bootp,"P");
+	if ( enforceBootp > 0 || 'Y' == toupper( *boot_use_bootp ) ) {
+		enforceBootp = 2;
+		strcpy(boot_use_bootp,"P");
+	}
 #endif
 
 	doIt(manual, enforceBootp, &ctx);
