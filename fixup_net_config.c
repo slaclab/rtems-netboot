@@ -17,6 +17,8 @@ extern char *BSP_commandline_string;
 #include <ctype.h>
 #include <errno.h>
 
+#include "libnetboot.h"
+
 /* there is no public Workspace_Free() variant :-( */
 #include <rtems/score/wkspace.h>
 
@@ -31,7 +33,6 @@ static void fillin_srvrandfile(void);
 #define bootp_cmdline				rtems_bsdnet_bootp_cmdline
 #define bootp_srvr					rtems_bsdnet_bootp_server_address
 #define net_config					rtems_bsdnet_config
-#define do_bootp					rtems_bsdnet_do_bootp
 extern int rtems_bsdnet_loopattach(struct rtems_bsdnet_ifconfig*, int);
 #define loopattach					rtems_bsdnet_loopattach
 
@@ -42,79 +43,9 @@ extern int rtems_bsdnet_loopattach(struct rtems_bsdnet_ifconfig*, int);
 
 static char *boot_my_media = 0;
 
-/* UGLY: this routine set BSP_commandline_string as a side effect
- *       of processing the parameter table!
- */
-static void extract_boot_parms(char **pbuf)
+static char do_bootp()
 {
-Parm	p;
-char	*beg,*end,*buf;
-
-	buf = *pbuf;
-	*pbuf = 0;
-
-	parmList[CMD_LINE_IDX].pval = pbuf;
-
-	for (beg=buf; beg; beg=end) {
-		/* skip whitespace */
-		while (' '==*beg) {
-			if (!*++beg) {
-				/* end of string reached; bail out */
-				return;
-			}
-		}
-		/* simple algorithm to find the end of quoted 'name=quoted'
-		 * substrings. As a side effect, quotes are removed from
-		 * the value.
-		 */
-		if ( (end = strchr(beg,'=')) ) {
-			if ('\'' == *++end) {
-				/* end points to the 1st char after '=' which is a '\'' */
-
-				char *dst = end++;
-
-				/* end points to 1st char after '\'' */
-
-				while ('\'' != *end || '\'' == *++end) {
-					if ( 0 == (*dst++=*end++) ) {
-						/* NO TERMINATING QUOTE FOUND
-						 * (for a properly quoted string we
-						 * should never get here)
-						 */
-						end = 0;
-						dst--;
-						break;
-					}
-				}
-				*dst = 0;
-			} else {
-				/* first space terminates non-quoted strings */
-				if ( (end = strchr(end,' ')) )
-					*(end++)=0;
-			}
-		}
-		/* save special bootloader strings to our private environment
-		 * and pass on the others
-		 */
-		for (p=parmList; p->name; p++) {
-			if (!p->pval) continue;
-			if (0 == strncmp(beg,p->name,strlen(p->name))) {
-				/* found this one; since 'name' contains a '=' strchr will succeed */
-				char *s=strchr(beg,'=')+1;
-
-				/* p->pval might point into the
-				 * network configuration which is invalid
-				 * if we have no networking
-				 */
-				if (&net_config) {
-					*p->pval=malloc(strlen(s)+1);
-					strcpy(*p->pval,s);
-				}
-				break;
-			}
-		}
-		/* unfound name=value pairs are dropped to the floor */
-	}
+	return boot_use_bootp ? toupper(*boot_use_bootp) : 'Y';
 }
 
 static void
@@ -128,18 +59,13 @@ fillin_srvrandfile(void)
 					&bootp_srvr)) {
 		}
 	}
-	if (boot_filename) {
-		/* Ha - they manually changed the file name and the parameters */
-		bootp_file    = boot_filename;
-		/* (dont bother freeing the old one - we don't really know if its malloced */
-		boot_filename = 0;
-	}
-	if (boot_parms) {
-		/* comments for boot_filename apply here as well */
-		bootp_cmdline = boot_parms;
-	} else {
-		boot_parms  = bootp_cmdline;
-	}
+	/* Ha - they manually changed the file name and the parameters */
+	bootp_file    = boot_filename;
+	/* (dont bother freeing the old one - we don't really know if its malloced */
+	boot_filename = 0;
+
+	/* comments for boot_filename apply here as well */
+	bootp_cmdline = boot_parms;
 }
 
 /* Scan the list of interfaces for the first non-loopback
@@ -205,21 +131,53 @@ int   media;
 	}
 
 	/* now check if we should do real bootp */
-	if ( !boot_use_bootp || 'N'!=toupper(*boot_use_bootp)) {
+	if ( 'N' != do_bootp() ) {
 		/* Do bootp first */
 		if (the_apps_bootp) {
 			the_apps_bootp();
 		} else {
-			do_bootp();
+			rtems_bsdnet_do_bootp();
 		}
 	}
-	/* override the server/filename parameters */
-	fillin_srvrandfile();
+
+	if ( 'Y' != do_bootp() ) {
+		/* override the server/filename parameters */
+		fillin_srvrandfile();
+	}
 }
 
 
+static int
+putparm(char *str)
+{
+Parm p;
+	/* save special bootloader strings to our private environment
+	 * and pass on the others
+	 */
+	for (p=parmList; p->name; p++) {
+		if (!p->pval) {
+			continue;
+		}
+		if (0 == strncmp(str,p->name,strlen(p->name))) {
+			/* found this one; since 'name' contains a '=' strchr will succeed */
+			char *s=strchr(str,'=')+1;
+
+			/* p->pval might point into the
+			 * network configuration which is invalid
+			 * if we have no networking
+			 */
+			if (&net_config) {
+				*p->pval=malloc(strlen(s)+1);
+				strcpy(*p->pval,s);
+			}
+			return 0;
+		}
+	}
+	return -1;
+}
+
 void 
-nvramFixupBsdnetConfig(int readNvram)
+nvramFixupBsdnetConfig(int readNvram, char *argline)
 {
 Parm	                     p;
 struct rtems_bsdnet_ifconfig *ifc;
@@ -237,7 +195,8 @@ struct rtems_bsdnet_ifconfig *ifc;
 		unlock();
 	}
 
-	extract_boot_parms(&BSP_commandline_string);
+	if ( argline )
+		cmdlinePairExtract(argline, putparm, 1);
 
 	if ( boot_my_if ) {
 		if ( (boot_my_media = strchr(boot_my_if,':')) ) {
@@ -260,7 +219,7 @@ struct rtems_bsdnet_ifconfig *ifc;
 	if ( boot_my_if )
 		ifc->name = boot_my_if;
 
-	if (boot_use_bootp && 'N'==toupper(*boot_use_bootp)) {
+	if ( 'N' == do_bootp() ) {
 		/* no bootp */
 
 		/* get pointers to the first interface's configuration */

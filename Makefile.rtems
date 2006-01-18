@@ -8,7 +8,7 @@
 # C source names, if any, go here -- minus the .c
 C_PIECES_netboot=netboot ctrlx term 
 C_PIECES_coredump=coredump ctrlx term 
-C_PIECES_libnetboot=fixup_net_config
+C_PIECES_libnetboot=fixup_net_config pairxtract
 
 C_PIECES=$(C_PIECES_$(PGM)) $(C_PIECES_$(LIB))
 C_O_FILES=${C_PIECES:%=${ARCH}/%.o}

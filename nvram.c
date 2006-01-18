@@ -274,7 +274,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			&boot_use_bootp,
 			"Use BOOTP: Yes, No or Partial (-> file and\n"
             "          command line from NVRAM) [Y/N/P]>",
-			getUseBootp,	FLAG_DUP | FLAG_BOOTP,
+			getUseBootp,	FLAG_DUP,
 	},
 	{ "BP_DELY=",
 			&auto_delay_secs,
@@ -1103,6 +1103,16 @@ int				i;
 	/* OK, we found a valid string */
 	str = strdup(str);
 
+	/* Clean out the parameter list; NVRAM parameters with NULL values are not present
+	 * in the RAM so we must make sure there are no stale values in the list...
+	 */
+	for (p=c->parmList; p->name; p++) {
+		if ( p->pval && *p->pval ) {
+			free(*p->pval);
+			*p->pval = 0;
+		}
+	}
+
 	for (pch=str; pch; pch=end) {
 		/* skip whitespace */
 		while (' '==*pch) {
@@ -1249,7 +1259,7 @@ int		n;
 	 * so they can be used by a full-blown system outside of 'netboot')
 	 */
 	if ( doClone ) {
-		assert ( (c->parmList = malloc(sizeof(parmList))) && (pstrs = malloc(sizeof(*pstrs) * NUM_PARMS)) );
+		assert ( (c->parmList = malloc(sizeof(parmList))) && (pstrs = calloc(NUM_PARMS, sizeof(*pstrs))) );
 		for ( p = c->parmList, n = 0; 1;p++, n++ ) {
 			*p = parmList[n];
 			if ( !p->name )

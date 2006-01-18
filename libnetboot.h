@@ -24,7 +24,7 @@ extern "C" {
  * NOTE: this routine must be called prior to network initialization.
  */
 void 
-nvramFixupBsdnetConfig(int readNvram);
+nvramFixupBsdnetConfig(int readNvram, char *cmdline);
 
 /* Change the NVRAM boot parameters interactively.
  *
@@ -49,6 +49,38 @@ bootConfigShow(FILE *f);
  */
 int
 nvramConfigShow(FILE *f);
+
+/*
+ * Scan 'buf' for name=value pairs.
+ *
+ * pair = name { ' ' } '=' value
+ *
+ * name:  string not containing '\'', ' ' or '='
+ *
+ * value: quoted_value | simple_value
+ *
+ * simple_value: string terminated by the first ' '
+ *
+ * quoted_value: '\'' { non_quote_char | '\'''\'' } '\''
+ *
+ * On each 'name=' tag found the callback is invoked with the
+ * 'str' parameter pointing to the first character of the name.
+ * The value is NULL terminated.
+ *
+ * If the callback returns 0 and the 'removeFound' argument is nonzero
+ * then the 'name=value' pair is removed from 'buf'.
+ *
+ * SIDE EFFECTS:
+ *    - space between 'name' and '=' is removed
+ *    - values are unquoted and NULL terminated (undone after callback returns)
+ *    - name=value pairs are removed from 'buf' if callback returns 0 and removeFound
+ *      is nonzero.
+ * If side-effects cannot be tolerated then the routine should be executed on a
+ * 'strdup()'ed copy...
+ */
+
+void
+cmdlinePairExtract(char *buf, int (*putpair)(char *str), int removeFound);
 
 #ifdef __cplusplus
 }
