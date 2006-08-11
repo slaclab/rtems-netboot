@@ -1,8 +1,6 @@
 int  ho=0 /* 0 = default or use "xxx.xxx.xxx.xxx" */; int i;
 int ll="ssrlApps/powerpc-rtems/svgm/img/netboot.flashimg.bin";
-int lc="ssrlApps/powerpc-rtems/svgm/img/coredump.flashimg.bin";
 int s1="ssrlApps/powerpc-rtems/svgm/img/smonscript.st";
-int s2="ssrlApps/powerpc-rtems/svgm/img/coredump.st";
 int s3="ssrlApps/powerpc-rtems/svgm/img/reflash.st";
 void lwr(int fn,int a){
 printf("done\nLoading '%s' from '%s'\n",fn,ho);

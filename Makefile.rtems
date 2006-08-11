@@ -35,10 +35,12 @@ OBJS=$(C_O_FILES) $(CC_O_FILES) $(S_O_FILES)
 
 
 APPS=netboot
-ifeq ($(RTEMS_BSP),svgm)
-#No point in making coredump for MotLoad BSPs; MotLoad clears all memory when booting
-APPS+=coredump
-endif
+## T.S, 2006/08/11 Memory footprint on RTEMS-4.7 too big :-(
+## disable 'coredump' for now
+##ifeq ($(RTEMS_BSP),svgm)
+###No point in making coredump for MotLoad BSPs; MotLoad clears all memory when booting
+##APPS+=coredump
+##endif
 
 LIBRS=libnetboot
 
@@ -79,7 +81,7 @@ LD_LIBS   += -ltecla_r -lrtemsNfs
 #LDFLAGS   += -L/usr/local/rtems/powerpc-rtems/lib -Wl,-Map,map
 #LDFLAGS += -Wl,--section-start,.image_start=0x300000 -Wl,--section-start,.data=0x500000
 #LDFLAGS += -Wl,--section-start,.text=0x3000 -Wl,--section-start,.data=0x100000
-LDFLAGS_coredump = -qnolinkcmds -Wl,-Tcoredump.lds -Wl,-Map,$(ARCH)/linkmap
+LDFLAGS_coredump = -qnolinkcmds -Wl,-Tcoredump.lds
 LDFLAGS += -Wl,-Map,$(ARCH)/${PGM}.linkmap ${LDFLAGS_${PGM}} -Wl,-u,inet_pton -Wl,-z,muldefs
 
 #

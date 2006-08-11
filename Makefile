@@ -59,10 +59,12 @@ DEST=0x100
 # 
 
 APPS=netboot
-ifeq ($(RTEMS_BSP),svgm)
-#No point in making coredump for MotLoad BSPs; MotLoad clears all memory when booting
-APPS+=coredump
-endif
+## T.S, 2006/08/11 Memory footprint on RTEMS-4.7 too big :-(
+## disable 'coredump' for now
+##ifeq ($(RTEMS_BSP),svgm)
+###No point in making coredump for MotLoad BSPs; MotLoad clears all memory when booting
+##APPS+=coredump
+##endif
 APPS+=libnetboot
 
 mkelf=$(1:%=o-optimize/%$(EXTENS))
@@ -77,7 +79,8 @@ MAKEFILE=Makefile
 
 HDRS = libnetboot.h
 
-SCRIPTS=smonscript.st reflash.st coredump.st
+SCRIPTS=smonscript.st reflash.st
+## coredump.st
 
 include $(RTEMS_MAKEFILE_PATH)/Makefile.inc
 include $(RTEMS_CUSTOM)
