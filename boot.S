@@ -11,10 +11,14 @@
  *  http://www.OARcorp.com/rtems/license.html.
  *
  */
-
-#include <asm.h>
 #include <rtems/score/cpu.h>
 #include <libcpu/io.h>
+
+#ifndef CPU_MINIMUM_STACK_FRAME_SIZE
+/* rtems 4.7 */
+#include <rtems/powerpc/powerpc.h>
+#define CPU_MINIMUM_STACK_FRAME_SIZE PPC_MINIMUM_STACK_FRAME_SIZE
+#endif
 
 	.text
 	.globl	__boot_from_fdiag
@@ -26,7 +30,7 @@ __boot_from_fdiag:
  * to its proper place in memory by the boot loader.  The expected layout
  * of the regs is:	
  * T.S: NOTE r3..r5 are not used on SVGM.
- *   r3: ptr to residual data
+ 2   r3: ptr to residual data
  *   r4: initrd_start or if no initrd then 0
  *   r5: initrd_end - unused if r4 is 0
  *   r6: Start of command line string (or 0)
@@ -37,11 +41,11 @@ __boot_from_fdiag:
  *   set up an adequate environment...
  *
  */
-	mr	r31,r3			/* save parameters */
-	mr	r30,r4
-	mr	r29,r5
-	mr	r28,r6
-	mr	r27,r7
+	mr	31,3			/* save parameters */
+	mr	30,4
+	mr	29,5
+	mr	28,6
+	mr	27,7
 	/*
 	 * Make sure we have nothing in TLB
 	 * but keep the BAT mappings SMON/Fdiag set up
@@ -57,32 +61,32 @@ enter_C_code:
 	/*
 	 * restore prep boot params
 	 */
-	mr	r3,r31
-	mr	r4,r30
-	mr	r5,r29
-	mr	r6,r28
-	mr	r7,r27 
+	mr	3,31
+	mr	4,30
+	mr	5,29
+	mr	6,28
+	mr	7,27 
 	bl	save_boot_params
 	/*
 	 * stack = &__rtems_end + 4096
 	 */
-	addis	r9,r0, __rtems_end+(4096-CPU_MINIMUM_STACK_FRAME_SIZE)@ha
-    addi	r9,r9, __rtems_end+(4096-CPU_MINIMUM_STACK_FRAME_SIZE)@l
-	mr	r1, r9
+	addis	9,0, __rtems_end+(4096-CPU_MINIMUM_STACK_FRAME_SIZE)@ha
+    addi	9,9, __rtems_end+(4096-CPU_MINIMUM_STACK_FRAME_SIZE)@l
+	mr	1,9
 	/*
 	 * We are know in a environment that is totally independent from bootloader setup.
 	 */
-    lis	r5,environ@ha
-    la	r5,environ@l(r5)	/* environp */
-	li	r4, 0			/* argv */
-	li	r3, 0			/* argc */
+    lis	5,environ@ha
+    la	5,environ@l(5)	/* environp */
+	li	4, 0			/* argv */
+	li	3, 0			/* argc */
 	bl	boot_card
 	bl	_return_to_ppcbug
 	
 flush_tlbs:
-	lis	r20, 0x1000
-1:	addic.	r20, r20, -0x1000
-	tlbie	r20
+	lis	20, 0x1000
+1:	addic.	20, 20, -0x1000
+	tlbie	20
 	bgt	1b
 	sync
 	blr
