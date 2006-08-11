@@ -20,7 +20,7 @@ SECTIONS {
 		*(.text)
 		*(.fixup)
 		*(.got2)
-	} > CODE
+	} /* > CODE */
 	__zl_etext = ALIGN ( 4 );
 
 	/* gunzip expects data in ram, static data
@@ -30,17 +30,17 @@ SECTIONS {
 	.data DEST + __rtems_end - __rtems_start : AT( __zl_etext ) {
 	__zl_data_start = . ;
 		gunzip.o(.sdata)
-		gunzip.o(.rodata)
+		gunzip.o(.rodata*)
 		gunzip.o(.data)
 		gunzip.o(.sdata2)
 		. = ALIGN ( 4 );
-	} > DATA
+	} /* > DATA */
 	__zl_bss_start = . ;
 	.bss : {
 		gunzip.o(.sbss)
 		gunzip.o(.bss)
 		. = ALIGN ( 4 );
-	} > DATA
+	} /* > DATA */
 	__zl_bss_end = . ;
 
 	/* compressed 'netload' image appended here */
@@ -48,6 +48,6 @@ SECTIONS {
 	__zimage_start = . ;
 		*.img.gz(*)
 	__zimage_end = . ;
-	} > DATA
+	} /* > DATA */
 
 }
