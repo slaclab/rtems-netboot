@@ -1363,7 +1363,7 @@ extern char *rtems_bsdnet_domain_name;
 extern struct in_addr rtems_bsdnet_bootp_server_address;
 extern struct in_addr rtems_bsdnet_log_host_address;
 extern struct in_addr *rtems_bsdnet_nameserver;
-extern struct in_addr *rtems_bsdnet_ntpserver;
+extern struct in_addr rtems_bsdnet_ntpserver[];
 extern int  rtems_bsdnet_nameserver_count; 
 extern int  rtems_bsdnet_ntpserver_count; 
 	if (!f) f = stdout;
