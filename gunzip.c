@@ -257,14 +257,18 @@ char	 *src = &__zimage_start;
 	zlprint("done\n");
 }
 
+#if 0
 static void *
-memcpy(char *dest, char *src, int n)
+zmemcpy(void *d, const void *s, size_t n)
 {
+unsigned char *dest=d;
+const unsigned char *src=s;
 	while (n--) {
 		dest[n]=src[n];
 	}
-	return dest;
+	return d;
 }
+#endif
 
 #ifdef USE_SMON_PRINT
 static void
