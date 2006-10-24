@@ -81,8 +81,13 @@ extern char *z_errmsg[]; /* indexed by 1-zlib_error */
          /* functions */
 
 #include <string.h>
+
+#ifndef zmemcpy
 #define zmemcpy memcpy
+#endif
+#ifndef zmemzero
 #define zmemzero(dest, len)	memset(dest, 0, len)
+#endif
 
 /* Diagnostic functions */
 #ifdef DEBUG_ZLIB
