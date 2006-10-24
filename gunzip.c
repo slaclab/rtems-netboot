@@ -177,6 +177,14 @@ register unsigned long *pd;	/* MUST NOT BE ON THE STACK (which might get destroy
 			: "r3","r4","r5","r6","r7","r10");
 }
 
+/* must provide our own version because SVGM FLASH
+ * can only be accessed 8-bit wide (memcpy optimizes
+ * to wider transfers).
+ */
+static void *zmemcpy(void*, const void*, unsigned);
+
+#define zmemcpy zmemcpy
+
 #include "zlib.c"
 
 static void
@@ -257,9 +265,9 @@ char	 *src = &__zimage_start;
 	zlprint("done\n");
 }
 
-#if 0
+/* see above (declaration) why we need our own version */
 static void *
-zmemcpy(void *d, const void *s, size_t n)
+zmemcpy(void *d, const void *s, unsigned n)
 {
 unsigned char *dest=d;
 const unsigned char *src=s;
@@ -268,7 +276,6 @@ const unsigned char *src=s;
 	}
 	return d;
 }
-#endif
 
 #ifdef USE_SMON_PRINT
 static void
