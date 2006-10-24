@@ -9,7 +9,7 @@ DEST=0x100
 
 # DEBUGGING VALUES (make clean; make when changing these)
 # SVGM:
-#FLASHSTART=0x200000
+#FLASHSTART=0x400000
 #DEST=0x10000
 
 # MVME5500: (claim memory with malloc from MotLoad)
