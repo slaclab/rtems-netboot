@@ -39,7 +39,7 @@ SECTIONS {
 	.bss : {
 		gunzip.o(.sbss)
 		gunzip.o(.bss)
-		. = ALIGN ( 4 );
+		. = ALIGN ( 16 );
 	} /* > DATA */
 	__zl_bss_end = . ;
 

@@ -41,14 +41,14 @@
  */
 
 /* variables defined by the linker script */
-extern char __zimage_start;
-extern char __zimage_end;
+extern char __zimage_start[];
+extern char __zimage_end[];
 
-extern unsigned long __zl_bss_start;
-extern unsigned long __zl_bss_end;
+extern unsigned long __zl_bss_start[];
+extern unsigned long __zl_bss_end[];
 
-extern unsigned long __zl_etext;
-extern unsigned long __zl_data_start;
+extern unsigned long __zl_etext[];
+extern unsigned long __zl_data_start[];
 
 extern unsigned long __GOT2_START[];
 extern unsigned long __GOT2_END[];
@@ -57,18 +57,25 @@ extern unsigned long *__FIXUP_END[];
 
 #define IMAGE_LEN	((unsigned)&__zl_len)
 
-#define EARLY_STACK_SIZE 10000
+#define EARLY_STACK_SIZE 0x1	/* in units of 64k for sake of simplicity */
 
 #define GZ_ALIGN(p) (((unsigned long)(p)+7)&~7)
 
 #define CACHE_LINE_SIZE 32
 
-#if DEST >= 0x3000
+#define USE_SMON_STACK
+#define USE_SMON_PRINT
+
+#if DEST > 0x10000
 #define TEST_IN_RAM
 #endif
 
-#ifndef TEST_IN_RAM
+#if !defined(TEST_IN_RAM)
 #undef USE_SMON_PRINT
+#endif
+
+#if DEST < 0x10000
+#undef USE_SMON_STACK
 #endif
 
 #ifdef USE_SMON_PRINT
@@ -84,8 +91,22 @@ static void     *free_mem;
 
 static void gunzip();
 
-/* gcc -O4 doesn't preserve start() at the beginning */
-__asm__ ("  .globl _start; _start: b start");
+#define __str(a) #a
+#define str(a) __str(a)
+
+/* gcc -O4 doesn't preserve start() at the beginning; loadup stack pointer and jump to start */
+__asm__ (
+	"  .globl __zl_bss_end      \n"
+	"  .globl _start			\n"
+	"_start:					\n"
+#if !defined(USE_SMON_STACK)
+	"	lis   1,__zl_bss_end@ha	\n"
+	"	addi  1, 1, __zl_bss_end@l  \n"
+	"	addis 1, 1, "str(EARLY_STACK_SIZE)"\n"		/* allocate 64k of stack */
+	"	addi  1, 1, -16         \n"
+#endif
+	"	b start					\n"
+);
 
 
 #if 0
@@ -141,21 +162,17 @@ register unsigned long *ps;	/* MUST NOT BE ON THE STACK (which might get destroy
 register unsigned long *pd;	/* MUST NOT BE ON THE STACK (which might get destroyed) */
 
 	/* copy the data section into ram */
-	for (ps=&__zl_etext, pd = &__zl_data_start; pd < &__zl_bss_start; )
+	for ( ps = __zl_etext, pd = __zl_data_start; pd < __zl_bss_start; )
 		*pd++=*ps++;
 	zlprint("data copied\n");
 
 	/* clear out the BSS */
-	for (pd = &__zl_bss_start; pd < &__zl_bss_end; )
+	for (pd = __zl_bss_start; pd < __zl_bss_end; )
 		*pd++=0;
 	zlprint("bss cleared\n");
 
 	/* set free memory / heap start address */
-	free_mem=(void*)GZ_ALIGN(((char*)&__zl_bss_end + EARLY_STACK_SIZE));
-#ifndef TEST_IN_RAM
-	/* load up initial stack */
-	__asm__ __volatile__("mr %%r1, %0"::"r"(free_mem - 16));
-#endif
+	free_mem=(void*)GZ_ALIGN(((char*)&__zl_bss_end + (EARLY_STACK_SIZE<<16)));
 	/* call a routine, so we can use the new stack */
 	gunzip();
 	/* point of no return */
@@ -165,7 +182,7 @@ register unsigned long *pd;	/* MUST NOT BE ON THE STACK (which might get destroy
 			"mr %%r5, %0\n"
 			"mr %%r6, %1\n"
 			"mr %%r7, %%r3\n"
-#ifndef TEST_IN_RAM
+#if !defined(TEST_IN_RAM)
 			"mtlr	%0\n"
 			"blr\n"
 #else	
@@ -214,7 +231,7 @@ static void gunzip(void)
 {
 z_stream zs;
 unsigned skip = 10, flags, rval;
-char	 *src = &__zimage_start;
+char	 *src = __zimage_start;
 
 	flags = src[3];
 	if (DEFLATED != src[2] || (flags & RESERVED)) {
@@ -233,7 +250,7 @@ char	 *src = &__zimage_start;
 	src += skip;
 
 	zs.next_in   = src;
-	zs.avail_in  = (&__zimage_end-src);
+	zs.avail_in  = (__zimage_end-src);
 	zs.total_in  = 0;
 
 	zs.next_out  = (void*)DEST;
