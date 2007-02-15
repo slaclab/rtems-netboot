@@ -5,7 +5,10 @@
  */
 
 
+#ifdef __rtems__
 #include <rtems.h>
+#include <rtems/bsdnet/servers.h>
+#endif
 
 #include <string.h>
 #include <stdlib.h>
@@ -19,10 +22,12 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
+#ifdef __rtems__
 #include <rtems/rtems_mii_ioctl.h>
 
 #ifdef __PPC__
 #include <libcpu/cpuIdent.h>
+#endif
 #endif
 
 #include <unistd.h>
@@ -45,7 +50,11 @@
 #define DISABLE_HOTKEYS
 #endif
 
+#ifdef __rtems__
 #include <bsp.h>
+#else
+#include <nvram_hosttst.h>
+#endif
 
 /* define after including <bsp.h> */
 
@@ -1285,6 +1294,7 @@ int		n;
 
 #ifndef __INSIDE_NETBOOT__
 
+#ifdef __rtems__
 volatile rtems_id nvramMutex = 0;
 
 static void
@@ -1322,6 +1332,11 @@ lock()
 }
 
 #define unlock() rtems_semaphore_release(nvramMutex)
+
+#else
+static inline int lock() { return 0;}
+static inline int unlock() { return 0;}
+#endif
 
 #define NONEQ(charp) ((charp) ? (charp) : "<NONE>")
 
@@ -1362,10 +1377,6 @@ extern char *rtems_bsdnet_bootp_cmdline;
 extern char *rtems_bsdnet_domain_name;
 extern struct in_addr rtems_bsdnet_bootp_server_address;
 extern struct in_addr rtems_bsdnet_log_host_address;
-extern struct in_addr *rtems_bsdnet_nameserver;
-extern struct in_addr rtems_bsdnet_ntpserver[];
-extern int  rtems_bsdnet_nameserver_count; 
-extern int  rtems_bsdnet_ntpserver_count; 
 	if (!f) f = stdout;
 	
 	fprintf(f,"\nThis system was booted with the following configuration:\n\n");
@@ -1476,6 +1487,7 @@ NetConfigCtxtRec ctx;
 	return 0;
 }
 
+#ifdef __rtems__
 #include <cexpHelp.h>
 
 CEXP_HELP_TAB_BEGIN(svgm_nvram)
@@ -1498,5 +1510,6 @@ CEXP_HELP_TAB_BEGIN(svgm_nvram)
 		void, bootConfigShow, (void)
 		),
 CEXP_HELP_TAB_END
+#endif
 
 #endif
