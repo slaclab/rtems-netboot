@@ -541,7 +541,7 @@ int		result=0;
 
 	/* prompt() sets nval to NULL on special answers */
 	if (nval || !result) {
-		if (!mandatory && 0==strcmp(nval,"0.0.0.0")) {
+		if (!mandatory && nval && 0==strcmp(nval,"0.0.0.0")) {
 			free(nval); nval=0;
 		}
 		free(*pval);
