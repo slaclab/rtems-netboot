@@ -1,4 +1,9 @@
+$Id$
+
 T. Straumann, 2005/4/26, 2005/10/14
+
+For general 'netboot' usage information please consult
+the file README.netboot.
 
 All instructions below also apply to the MVME6100 combined (AKA 'beatnik') BSP
 (i.e., the beatnik BSP supports both, the 6100 and the 5500 boards).
@@ -8,14 +13,12 @@ at '<top>/target/ssrlApps/powerpc-rtems/beatnik/img/netboot.flashimg.bin'.
 The 'netboot' loader is now also available for the MVME5500 board.
 A patch to the mvme5500 BSP (but not the mvme6100 combo BSP) is necessary
 so that 'netboot' can pass config parameters to the bootee.
-The necessary patch is applied in the
-'package/rtems/4.6.2-devel' area.
 Furthermore, more patches are needed to fix bugs which prevent
 this BSP (i.e., the mvme5500 BSP) from being booted properly
 (by 'chance' it works with MotLoad but not e.g., with motLoad's
 'execProgram').
 
-The general description from README.vgmflash still applies
+The general description from README.netboot still applies
 EXCEPT for the sections about burning/programming the flash
 and starting the netboot program.
 

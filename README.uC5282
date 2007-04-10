@@ -1,0 +1,90 @@
+$Id$
+
+For general 'netboot' usage information please consult
+the file README.netboot.
+
+uC5282-SPECIFIC INFORMATION
+---------------------------
+
+The uC5282 board has no NVRAM. All non-volatile parmeters
+are stored in flash memory and the ucbootloader's 'environment'
+variables are used for that purpose.
+Some variables (such as IPADDR0) have the same semantics under
+ucbootloader and under netboot.
+
+'netboot' on the uC5282 provides no interface for setting/changing
+non-volatile parameters. The user can change these parameters at the
+ucbootloader command line (consult ucbootloader/ucDimm documentation
+for more information about this subject).
+
+Note that (for historic reasons) 'netboot' uses short and
+somewhat cryptic names for variables stored in NVRAM. In order
+to make life easier some aliases are also accepted (some
+of these aliases such as 'IPADDR0' are also recognized by
+ucbootloader).
+
+A list of netboot names, aliases and description is given here:
+
+Netboot name       Alias      Description
+  BP_FILE       n/a           Path to boot file (see README.netboot)
+  BP_PARM       n/a           Commandline string passed to bootee
+  BP_SRVR       n/a           Default Server IP
+  BP_GTWY       GATEWAY       Gateway
+  BP_MYIF       n/a           My/target IF media setup (auto, 100baseTx etc.)
+  BP_MYIP       IPADDR0       My/target IP
+  BP_MYMK       NETMASK       My/target netmask
+  BP_MYNM       HOSTNAME      My/target name
+  BP_MYDN       DNS_DOMAIN    My/target DNS domain
+  BP_LOGH       LOGHOST       Log host IP
+  BP_DNS1       DNS_SERVER    DNS server IP #1
+  BP_DNS2       n/a           DNS server IP #2
+  BP_DNS3       n/a           DNS server IP #3
+  BP_NTP1       NTP_SERVER    NTP server IP #1
+  BP_NTP2       n/a           NTP server IP #2
+  BP_NTP3       n/a           NTP server IP #3
+  BP_ENBL       DO_BOOTP      Use bootp ('y'), use file and commandline string
+                              from flash but bootp for everything else ('p'),
+							  use flash parameters ('n').
+  BP_DELY       AUTOBOOT      Delay before autoboot starts (UNSET == wait for user input)
+
+E.g., to enable bootp, at the ucbootloader prompt enter:
+
+$setenv BP_ENBL y
+
+Alternatively, the alias may be used:
+
+$setenv DO_BOOTP y
+
+NOTE: avoid setting AUTOBOOT to zero unless you
+know what you are doing. If you want the target
+to boot automatically into netboot but you want
+netboot to wait with loading the target for a
+different amount of time then set both variables.
+The netboot name will take precedence under netboot
+but the alias will be used by ucbootloader.
+
+E.g., to let ucbootloader start netboot with a
+delay/countdown of 2 seconds and let netboot
+wait for user input before loading the target
+use the following setting
+
+AUTOBOOT 2     (ucbootloader waits 2s then starts netboot)
+BP_DELY  0     (netboot waits indefinitely for user input)
+
+BURNING THE FLASH
+-----------------
+
+Use the ucbootloader 'tftp' or 'rx' commands to download
+the binary 'netboot.flashimg.bin' into ram and then
+issue the 'program' command which burns the flash.
+
+STARTING NETBOOT
+----------------
+Use the 'go' command to start netboot from the ucbootloader
+shell. In order to have netboot starting up automatically
+after power-up set the variable AUTOBOOT. It is recommended
+that AUTOBOOT is never set to 0 -- otherwise the process
+can never be interrupted in case of a bad parameter setup
+or faulty netboot binary.
+
+T.S., 4/2007.
