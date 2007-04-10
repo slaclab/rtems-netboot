@@ -941,19 +941,22 @@ rtems_task Init(
   char	ch;
   int	secs;
 
+#ifndef USE_READLINE
+	ansiTiocGwinszInstall(7);
+#endif
+
+  /* Install CTRLX hack into current line discipline
+   * (must to _after_ ansiTiocGwinszInstall!)
+   */
+#ifdef SPC_REBOOT
+ 	installConsoleCtrlXHack(SPC_REBOOT);
+#endif
+
   /* copy static pointers into local buffer pointer array
    * (pointers in the ParmRec struct initializers are easier to maintain
    * but we want the 'config/showConfig' routines to be re-entrant
    * so they can be used by a full-blown system outside of 'netboot')
    */
-
-#ifdef SPC_REBOOT
- 	installConsoleCtrlXHack(SPC_REBOOT);
-#endif
-
-#ifndef USE_READLINE
-	ansiTiocGwinszInstall(7);
-#endif
 
 	netConfigCtxtInitialize(&ctx, stdout, 0);
 

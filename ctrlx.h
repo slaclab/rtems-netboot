@@ -29,6 +29,11 @@
  * static variable.
  *
  * RETURNS always 0
+ *
+ * NOTE: This routine hacks into the current line discipline
+ *       by installing a l_rint method to inspect all incoming
+ *       characters. Hence, the hack must be installed *after*
+ *       changing the line discipline, if any.
  */
 int
 installConsoleCtrlXHack(int magicChar);
