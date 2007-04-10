@@ -6,10 +6,6 @@
 
 typedef uint32_t xxx __attribute__((may_alias));
 
-void _CPU_cache_flush_1_data_line(void*);
-void _CPU_cache_invalidate_1_instruction_line(void*);
-
-
 /* move code 'from' 'to' and flush instruction cache
  *
  * ASSUMPTIONS: 'to' area is either not overlapping 'from' area
