@@ -100,7 +100,6 @@ static struct ucdimm_mapent ucdimm_map[] = {
 	{ "BP_DNS1", "DNS_SERVER" },
 	{ "BP_NTP1", "NTP_SERVER" },
 	{ "BP_ENBL", "DO_BOOTP"   },
-	{ "BP_PARM", "INIT"       },
 	{ "BP_DELY", "AUTOBOOT"   },
 	{ 0, 0}, /* sentinel */
 };
