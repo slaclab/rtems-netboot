@@ -11,8 +11,14 @@ Fake_bsdnet_config rtems_bsdnet_config;
 
 char theNvram[2048];
 
+#ifdef NVRAM_READONLY
+#ifndef NVRAM_GETVAR
+#define NVRAM_GETVAR(n) getenv(n)
+#endif
+#else
 #define BSP_NVRAM_BOOTPARMS_START theNvram
 #define BSP_NVRAM_BOOTPARMS_END   (theNvram + sizeof(theNvram))
+#endif
 
 struct in_addr rtems_bsdnet_bootp_server_address;
 char *rtems_bsdnet_bootp_server_name;

@@ -1,6 +1,3 @@
-/* provide access to the command line parameters */
-extern char *BSP_commandline_string;
-
 #include <rtems.h>
 #include <rtems/rtems_bsdnet.h>
 #include <rtems/rtems_mii_ioctl.h>
@@ -40,6 +37,27 @@ extern int rtems_bsdnet_loopattach(struct rtems_bsdnet_ifconfig*, int);
  * copied from the bootloader
  */
 #include "nvram.c"
+
+#ifndef BSP_HAS_COMMANDLINEBUF
+/* netboot may override stuff in the commandline
+ * but we need to provide specially tagged space (which is intended to be
+ * overwritten by netboot):
+ */
+#ifndef BSP_CMDLINEBUFSZ
+#define BSP_CMDLINEBUFSZ 1024
+#endif
+static char cmdlinebuf[BSP_CMDLINEBUFSZ] = {
+	COMMANDLINEBUF_TAG,
+	((BSP_CMDLINEBUFSZ>>12)&0xf) + '0',
+	((BSP_CMDLINEBUFSZ>> 8)&0xf) + '0',
+	((BSP_CMDLINEBUFSZ>> 4)&0xf) + '0',
+	((BSP_CMDLINEBUFSZ>> 0)&0xf) + '0',
+	0,
+};
+
+char *BSP_commandline_string = cmdlinebuf;
+#endif
+
 
 static char *boot_my_media = 0;
 
@@ -194,6 +212,11 @@ struct rtems_bsdnet_ifconfig *ifc;
 		netConfigCtxtFinalize(&ctx);
 		unlock();
 	}
+
+#ifndef BSP_HAS_COMMANDLINEBUF
+	if ( !argline )
+		argline = cmdlinebuf;
+#endif
 
 	if ( argline )
 		cmdlinePairExtract(argline, putparm, 1);

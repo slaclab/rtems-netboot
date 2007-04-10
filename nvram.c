@@ -58,12 +58,73 @@
 
 /* define after including <bsp.h> */
 
+#ifdef BSP_NVRAM_BOOTPARMS_START
 #define NVRAM_START		((unsigned char*)(BSP_NVRAM_BOOTPARMS_START))
-#define NVRAM_END		((unsigned char*)(BSP_NVRAM_BOOTPARMS_END))
+#endif
 
+#ifdef BSP_NVRAM_BOOTPARMS_END
+#define NVRAM_END		((unsigned char*)(BSP_NVRAM_BOOTPARMS_END))
+#endif
+
+#ifdef NVRAM_START
 /* CHANGE THE SIGNATURE WHEN CHANGING THE NVRAM LAYOUT */
 #define NVRAM_SIGN		0xcafe										/* signature/version */
 #define NVRAM_STR_START	(NVRAM_START + 2*sizeof(unsigned short))
+#endif
+
+#ifndef BSP_HAS_COMMANDLINEBUF
+#define COMMANDLINEBUF_TAG \
+	'B','S','P', \
+	'_',         \
+	'c','o','m','m','a','n','d','l','i','n','e',     \
+	'_','s','t','r','i','n','g','_','c','4','3','U'
+#endif
+
+#ifdef NVRAM_UCDIMM
+/* On the uC5282 we had introduced these variables
+ * some time ago. So we want to make netboot compatible with
+ * them :-(
+ */
+struct ucdimm_mapent {
+	char *netboot_name;
+	char *ucdimm_name;
+};
+
+static struct ucdimm_mapent ucdimm_map[] = {
+	{ "BP_MYIP", "IPADDR0"    },
+	{ "BP_GTWY", "GATEWAY"    },
+	{ "BP_MYMK", "NETMASK"    },
+	{ "BP_MYNM", "HOSTNAME"   },
+	{ "BP_MYDN", "DNS_DOMAIN" },
+	{ "BP_LOGH", "LOGHOST"    },
+	{ "BP_DNS1", "DNS_SERVER" },
+	{ "BP_NTP1", "NTP_SERVER" },
+	{ "BP_ENBL", "DO_BOOTP"   },
+	{ "BP_PARM", "INIT"       },
+	{ "BP_DELY", "AUTOBOOT"   },
+	{ 0, 0}, /* sentinel */
+};
+
+static const char *
+bev_remap(char *nm)
+{
+char       *chpt;
+const char *v_p;
+int  i;
+	/* Look for non-mapped name first */
+	if ( (v_p = bsp_getbenv(nm)) )
+		return v_p;
+	for ( i=0; (chpt = ucdimm_map[i].netboot_name); i++ ) {
+		if ( !strcmp(chpt, nm) ) {
+			nm = ucdimm_map[i].ucdimm_name;
+		}
+	}
+	return bsp_getbenv(nm);
+}
+#define NVRAM_GETVAR(name)	bev_remap(name)
+
+#endif
+
 
 #define DELAY_MIN "0"	/* 0 means forever */
 #define DELAY_MAX "30"
@@ -123,14 +184,16 @@ typedef struct ParmRec_ {
 	int		flags;
 } ParmRec;
 
+#ifndef NVRAM_READONLY
 static unsigned short
 appendNVRAM(NetConfigCtxt c, unsigned char **pnvram, int i_parm);
 
-static int
-readNVRAM(NetConfigCtxt c);
-
 static void
 writeNVRAM(NetConfigCtxt c);
+#endif
+
+static int
+readNVRAM(NetConfigCtxt c);
 
 static int getMedia(GET_PROC_ARG_PROTO);
 static int getString(GET_PROC_ARG_PROTO);
@@ -162,7 +225,9 @@ static char *boot_my_netmask = 0;
 /* flags need to strdup() these! */
 static char *boot_use_bootp="Y";
 static char *auto_delay_secs=DELAY_DEF;
+#ifdef __PPC__
 static char *CPU_TAU_offset = 0;
+#endif
 
 #define FILENAME_IDX 0
 #define CMD_LINE_IDX 1
@@ -171,9 +236,15 @@ static char *CPU_TAU_offset = 0;
 #define MYIPADDR_IDX 5
 #define BOOTP_EN_IDX 16
 #define DELYSECS_IDX 17
+#ifdef __PPC__
 #define CPU_TAU_IDX  18
+#endif
 
+#ifdef CPU_TAU_IDX
 #define NUM_PARMS    19
+#else
+#define NUM_PARMS    18
+#endif
 
 /* The code assembling the kernel boot parameter line depends on the order
  * the parameters are listed.
@@ -293,15 +364,18 @@ static ParmRec parmList[NUM_PARMS+1]={
 			getNum,
 			FLAG_NOUSE | FLAG_DUP,
 	},
+#ifdef __PPC__
 	{ "BP_TAUO=",
 			&CPU_TAU_offset,
 			"CPU Temp. Calibration - (LEAVE IF UNSURE) >",
 			getNum,
 			FLAG_UNSUPP,
 	},
+#endif
 	{ 0, }
 };
 
+#ifdef __PPC__
 static void
 tauOffsetHelp()
 {
@@ -313,6 +387,7 @@ tauOffsetHelp()
 	printf("     NOTE: use ONLY the info printed IMMEDIATELY after powerup\n");
 	printf("  4. Set the calibration offset to Tamb - Tsmon\n");
 }
+#endif
 
 
 #ifdef USE_READLINE
@@ -347,6 +422,7 @@ hack_undo(int count, int k)
 
 #endif /* USE_READLINE */
 
+#ifndef NVRAM_READONLY
 static void
 installHotkeys(NetConfigCtxt c)
 {
@@ -376,6 +452,7 @@ uninstallHotkeys(NetConfigCtxt c)
 #endif
 #endif
 }
+#endif
 
 /* The callers of this routine rely on not
  * getting an empty string.
@@ -765,6 +842,7 @@ int  retry = 1, result=0;
 	return result;
 }
 
+#if !defined(NVRAM_READONLY)  || defined(__INSIDE_NETBOOT__)
 /* clear the history and call a get proc */
 static int
 callGet(NetConfigCtxt c, int idx, int repeat)
@@ -781,7 +859,6 @@ Parm p = &c->parmList[idx];
 	} while ((rval=p->getProc(c,p->prompt,p->pval, repeat)) && repeat);
 	return rval;
 }
-
 
 /* return -1 if we have all necessary parameters
  * so we could boot:
@@ -858,13 +935,14 @@ int		rval = -1;
 
 	return -1;
 }
-
+#endif
 
 static int
 showConfig(NetConfigCtxt c, int doReadNvram)
 {
 Parm p;
 int  i;
+
     if (doReadNvram && !readNVRAM(c)) {
 		fprintf(c->err,"\nWARNING: no valid NVRAM configuration found\n");
 	} else {
@@ -890,7 +968,7 @@ int  i;
 }
 
 
-
+#ifndef NVRAM_READONLY
 static int
 config(NetConfigCtxt c)
 {
@@ -1074,15 +1152,32 @@ int				i;
 		*--nvchpt=((sum>>8)&0xff);
 		fprintf(c->out,"\nNVRAM configuration updated\n");
 }
+#endif
 
+
+/* Clean out the parameter list; NVRAM parameters with NULL values are not present
+ * in the RAM so we must make sure there are no stale values in the list...
+ */
+static void
+cleanList(NetConfigCtxt c)
+{
+Parm p;
+	for (p=c->parmList; p->name; p++) {
+		if ( p->pval && *p->pval ) {
+			free(*p->pval);
+			*p->pval = 0;
+		}
+	}
+}
+
+#ifdef NVRAM_START
 static int
 readNVRAM(NetConfigCtxt c)
 {
+Parm			p;
 unsigned short	sum,tag;
 unsigned char	*nvchpt=NVRAM_START;
 char            *str, *pch, *end;
-Parm			p;
-int				i;
 
 	sum=(*nvchpt++)<<8;
 	sum+=(*nvchpt++);
@@ -1112,15 +1207,7 @@ int				i;
 	/* OK, we found a valid string */
 	str = strdup(str);
 
-	/* Clean out the parameter list; NVRAM parameters with NULL values are not present
-	 * in the RAM so we must make sure there are no stale values in the list...
-	 */
-	for (p=c->parmList; p->name; p++) {
-		if ( p->pval && *p->pval ) {
-			free(*p->pval);
-			*p->pval = 0;
-		}
-	}
+	cleanList(c);
 
 	for (pch=str; pch; pch=end) {
 		/* skip whitespace */
@@ -1157,7 +1244,7 @@ int				i;
 			}
 
 			/* a valid parameter found */
-			for (p=c->parmList,i=0; p->name; p++, i++) {
+			for (p=c->parmList; p->name; p++) {
 				if ( (p->flags & FLAG_UNSUPP) || strncmp(pch, p->name, val-pch) )
 				continue;
 					/* found the parameter */
@@ -1173,6 +1260,64 @@ cleanup:
 	return 1;
 }
 
+#elif defined(NVRAM_GETVAR)
+
+static int
+readNVRAM(NetConfigCtxt c)
+{
+Parm p;
+const char *val;
+int rval = 1;
+int i, min, max;
+
+	cleanList(c);
+
+	min = max = 0;
+	if ( (val = NVRAM_GETVAR("BP_ENBL")) ) {
+		switch ( toupper(*val) ) {
+			case 'P':	max = SERVERIP_IDX + 1; break;
+			case 'N':	max = NUM_PARMS    + 1; break;
+			default: break; /* means 'Y' */
+		}
+	} else {
+		max = NUM_PARMS + 1;
+	}
+
+	/* Search for all parameters */
+	for (p=c->parmList, i=0; p->name; p++, i++) {
+		if ( (p->flags & FLAG_UNSUPP) )
+		continue;
+
+		{
+		char *nm = strdup(p->name);
+		char *ne;
+
+		/* strip '=' off the end */
+		ne = nm+strlen(nm)-1;
+		if ( '=' == *ne )
+			*ne = 0;
+
+		val = NVRAM_GETVAR(nm);
+
+		free(nm);
+		}
+
+		if ( ! val ) {
+			if ( (p->flags & FLAG_MAND) && (i>=min && i<max) ) {
+				fprintf(stderr,"Mandatory boot parameter '%s' missing -- please write to environment\n", p->name);
+				rval = 0;
+			}
+			continue;
+		}
+		/* found the parameter */
+		free(*p->pval);
+		*p->pval = strdup(val);
+	}
+	return rval;
+}
+#else
+#error "NO readNVRAM implementation!"
+#endif
 
 #ifndef __INSIDE_NETBOOT__
 
@@ -1424,6 +1569,7 @@ NetConfigCtxtRec ctx;
 	return 0;
 }
 
+#ifndef NVRAM_READONLY
 static int
 confirmed(NetConfigCtxt c)
 {
@@ -1472,9 +1618,11 @@ NetConfigCtxtRec ctx;
 		return -1;
 	netConfigCtxtInitialize(&ctx,stdout,1);
 	readNVRAM(&ctx);
+#ifdef __PPC__
 	if (   !(ctx.parmList[CPU_TAU_IDX].flags & FLAG_UNSUPP)
 		&& !*ctx.parmList[CPU_TAU_IDX].pval )
 		tauOffsetHelp();
+#endif
 	if ( (got=config(&ctx)) >= 0 ) {
 		if (got > 0 || confirmed(&ctx) ) {
 			writeNVRAM(&ctx);
@@ -1486,15 +1634,26 @@ NetConfigCtxtRec ctx;
 	unlock();
 	return 0;
 }
+#else
+int
+nvramConfig()
+{
+	fprintf(stderr,"nvramConfig() not implemented on this platform\n");
+	fprintf(stderr,"Use firmware to set non-volatile parameters\n");
+	return -1;
+}
+#endif
 
 #ifdef __rtems__
 #include <cexpHelp.h>
 
 CEXP_HELP_TAB_BEGIN(svgm_nvram)
+#ifndef NVRAM_READONLY
 	HELP(
 "Interactively change the NVRAM boot configuration",
 		void, nvramConfig, (void)
 		),
+#endif
 	HELP(
 "Show the NVRAM boot configuration; note that the currently active\n"
 "configuration may be different because the user may override the NVRAM\n"

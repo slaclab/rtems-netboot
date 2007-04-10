@@ -67,6 +67,15 @@ DEFINES += -DWINS_LINE_DISC ${DEFINES_${PGM}} ${DEFINES_${LIB}}
 CPPFLAGS += -I. -I$(exec_prefix)/include
 CFLAGS += $(DEBUG)
 
+ifeq ($(RTEMS_BSP),uC5282)
+DEFINES+=-DNVRAM_READONLY -DNVRAM_UCDIMM '-DBSP_mem_size=(1024*1024*8)' '-DrtemsReboot()=bsp_reset(0)'
+C_PIECES += uC5282_mover
+endif
+
+ifneq "$(filter $(RTEMS_BSP),beatnik svgm)xx" "xx"
+DEFINES+=-DBSP_HAS_COMMANDLINEBUF
+endif
+
 #
 # CFLAGS_DEBUG_V are used when the `make debug' target is built.
 # To link your application with the non-optimized RTEMS routines,

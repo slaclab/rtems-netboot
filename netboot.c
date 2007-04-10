@@ -125,7 +125,7 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 
 /* NETBOOT configuration */
 #define CONFIGURE_MAXIMUM_SEMAPHORES   	20 
-#define CONFIGURE_MAXIMUM_TASKS         6
+#define CONFIGURE_MAXIMUM_TASKS         10
 #define CONFIGURE_MAXIMUM_DEVICES       4
 #define CONFIGURE_MAXIMUM_REGIONS       4
 #define CONFIGURE_MAXIMUM_MESSAGE_QUEUES	4
@@ -339,6 +339,7 @@ char			*msg;
 	if (sd>=0) close(sd);
 }
 
+#ifdef __PPC__
 /* figure out the cache line size */
 static unsigned long
 probeCacheLineSize(unsigned long *workspace, int nels)
@@ -351,6 +352,13 @@ register unsigned long *u,*l;
 	while (!*l) l--;
 	return ((u-l)-1)*sizeof(*u);
 }
+#else
+static unsigned long
+probeCacheLineSize(unsigned long *workspace, int nels)
+{
+	return 16;
+}
+#endif
 
 static long
 handleInput(int fd, int errfd, char *bufp, long size)
@@ -422,6 +430,19 @@ register long ntot=0,got;
 	return ntot;
 }
 
+#if defined(__PPC__)
+#	define FLUSHINVAL_LINE(start) \
+		do { __asm__ __volatile__("dcbst 0,%0; icbi 0,%0"::"r"(start)); } while (0)
+#elif defined(__mc68000__) || defined(__mc68000) || defined(mc68000) || defined(__m68k__)
+#    define CACHE_LINE_SIZE 16
+extern void _CPU_cache_flush_1_data_line(void *addr);
+extern void _CPU_cache_invalidate_1_instruction_line(void *addr);
+#    define FLUSHINVAL_LINE(addr) \
+		do { \
+			_CPU_cache_flush_1_data_line(addr); \
+			_CPU_cache_invalidate_1_instruction_line(addr); \
+		} while (0)
+#endif    
 static void
 flushCaches(char *start, long size, long algn)
 {
@@ -432,10 +453,12 @@ register char *end=start+size;
 				/* flush the icache also - theoretically, there could
 				 * old stuff be lingering around there...
 				 */
-				__asm__ __volatile__("dcbst 0,%0; icbi 0,%0"::"r"(start));
+				FLUSHINVAL_LINE(start);
 				start+=algn;
 		}
+#ifdef __PPC__
 		__asm__ __volatile__("sync");
+#endif
 }
 
 static char *
@@ -459,6 +482,39 @@ register unsigned long algn;
 	if (!(ntot=handleInput(fd,errfd,buf,RSH_BUFSZ-(buf-mem)))) {
 		goto cleanup; /* error message has already been printed */
 	}
+
+#ifndef BSP_HAS_COMMANDLINEBUF
+	/* search command line tag in image and copy the commandline there */ 
+	{
+	register char *chpt;
+	register int      n;
+	unsigned          l;
+		char tag[] = { COMMANDLINEBUF_TAG, 0 };
+		l = strlen(tag);
+		for ( chpt = buf, n = ntot; (chpt=memchr(chpt, tag[0], n)); n = ntot - (++chpt - buf) ) {
+			if ( !strncmp(chpt, tag, l) ) {
+				/* found it */
+#ifdef DEBUG
+				printf("Found CMDLINEBUF tag in target image...");
+#endif
+				if ( 1 != sscanf(chpt+l,"%x",&l) ) {
+					/* not a valid length */
+#ifdef DEBUG
+					printf("BAD LENGTH\n");
+#endif
+					continue;
+				}
+#ifdef DEBUG
+				printf("Length %u (0x%x)\n", l, l);
+#endif
+				/* got it; copy commandline into buffer */
+				strncpy(chpt, cmdline, l);
+				chpt[l-1]=0;
+				break;
+			}
+		}
+	}
+#endif
 
 	flushCaches(buf,ntot,algn);
 
@@ -485,6 +541,7 @@ register unsigned long algn;
 	sleep(1);
 	/* fire up a loaded image */
 	rtems_interrupt_disable(l);
+#ifdef __PPC__
 	{
 	char *cmdline_end=cmdline;
 	if (cmdline_end)
@@ -503,6 +560,41 @@ register unsigned long algn;
 			  "r"(MSR_EE | MSR_DR | MSR_IR), "i"(SRR1), "i"(SRR0)
 			:"r3","r4","r5","r6","r7");
 	}
+#elif defined(NVRAM_UCDIMM)
+	{
+
+		/* bootee must reside at same location we are; do some
+		 * pretty ugly things here...
+		 */
+		extern void movjmp(void *to, void *from, int nlines);
+
+		/* copy the routine that moves the image to 0x40000
+		 * and starts the image from 0x40000 to an area
+		 * in the download buffer behind the image.
+		 */
+
+		/* Pointer to the copy/jump routine */
+		void (*movcpy)(void*, void*, int);
+
+		/* Aligned size of the image */
+		int nalgn = (ntot + algn - 1) & ~ (algn-1);
+
+		/* calculate destination address */
+		movcpy = (void*)(buf + nalgn/sizeof(*buf));
+
+		/* copy the mover assuming it's smaller than 20*16 bytes */
+		movjmp((void*)movcpy, movjmp, 20);
+
+		/* disable all interrupt sources */
+		MCF5282_INTC0_IMRL = MCF5282_INTC_IMRL_MASKALL;
+		MCF5282_INTC1_IMRL = MCF5282_INTC_IMRL_MASKALL;
+
+		/* now use the copy to move and start the image */
+		movcpy((void*)0x40000, buf, nalgn/algn);
+	}
+#else
+#warning "Starting bootee not yet implemented"
+#endif
 #endif
 
 cleanup:
@@ -575,7 +667,9 @@ help(void)
 	printf("\n");
 	printf("Press 's' for showing the current NVRAM configuration\n");
 #ifndef COREDUMP_APP
+#ifndef NVRAM_READONLY
 	printf("Press 'c' for changing your NVRAM configuration\n");
+#endif
 	printf("Press 'b' for manually entering filename/cmdline parameters only\n");
 	printf("Press '@' for continuing the netboot (BOOTP flag from NVRAM)\n");
 	printf("Press 'd' for continuing the netboot; enforce using BOOTP\n");
@@ -876,13 +970,19 @@ rtems_task Init(
 	fprintf(stderr,"CVS tag $Name$\n");
 
 	if (!readNVRAM(&ctx)) {
+#ifndef NVRAM_READONLY
 		fprintf(stderr,"No valid NVRAM settings found - initializing\n");
 		writeNVRAM(&ctx);
+#else
+		rtems_panic("No valid NVRAM settings found - unable to proceed :-(\n");
+#endif
 	}
 
 #ifndef COREDUMP_APP
+#ifdef __PPC__
 	if ( !(parmList[CPU_TAU_IDX].flags & FLAG_UNSUPP) && !CPU_TAU_offset )
 		tauOffsetHelp();
+#endif
 
 	/* it was previously verified that auto_delay_secs contains
 	 * a valid string...
@@ -941,6 +1041,7 @@ rtems_task Init(
 							switch (ch) {
 								case 's':	manual=showConfig(&ctx, 1);
 									break;
+#ifndef NVRAM_READONLY
 								case 'c':	if (config(&ctx) >=0) {
 #ifndef COREDUMP_APP
 												writeNVRAM(&ctx);
@@ -950,6 +1051,8 @@ rtems_task Init(
 											}
 											manual = -1;
 									break;
+#endif
+
 #ifndef COREDUMP_APP
 								case 'b':	manual=1;					break;
 								case 'p':	manual=0; enforceBootp=2;	break;

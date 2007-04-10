@@ -426,7 +426,14 @@ cleanup:
 extern int rcmd();
 
 #define RSH_PORT	514
-#define RSH_BUFSZ	25000000
+
+#ifndef RSH_BUFSZ
+#ifdef NVRAM_UCDIMM
+#define RSH_BUFSZ   (1024*1024*8)
+#else
+#define RSH_BUFSZ	(1024*1024*20)
+#endif
+#endif
 
 static int isRshPath(char **srvname, char *opath, int *perrfd, char **thepathp)
 {
