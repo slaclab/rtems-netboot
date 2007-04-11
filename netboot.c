@@ -151,6 +151,7 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 
 /* readline uses 'setjmp' which saves/restores floating point registers */
 #define CONFIGURE_INIT_TASK_ATTRIBUTES RTEMS_FLOATING_POINT
+#define CONFIGURE_INIT_TASK_STACK_SIZE (100*1024)
 
 #define CONFIGURE_INIT
 rtems_task Init (rtems_task_argument argument);
