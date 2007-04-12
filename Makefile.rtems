@@ -68,7 +68,7 @@ CPPFLAGS += -I. -I$(exec_prefix)/include
 CFLAGS += $(DEBUG)
 
 ifeq ($(RTEMS_BSP),uC5282)
-DEFINES+=-DNVRAM_READONLY -DNVRAM_UCDIMM '-DBSP_mem_size=(1024*1024*8)' '-DrtemsReboot()=bsp_reset(0)'
+DEFINES+=-DNVRAM_READONLY -DNVRAM_UCDIMM '-DBSP_mem_size=(1024*1024*8)'
 C_PIECES += uC5282_mover
 endif
 

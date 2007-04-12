@@ -950,7 +950,7 @@ rtems_task Init(
    * (must to _after_ ansiTiocGwinszInstall!)
    */
 #ifdef SPC_REBOOT
- 	installConsoleCtrlXHack(SPC_REBOOT);
+ 	installConsoleCtrlXHack(SPC_REBOOT, rtemsReboot);
 #endif
 
   /* copy static pointers into local buffer pointer array

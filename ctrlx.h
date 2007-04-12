@@ -34,9 +34,14 @@
  *       by installing a l_rint method to inspect all incoming
  *       characters. Hence, the hack must be installed *after*
  *       changing the line discipline, if any.
+ *
+ *       The caller must provide a routine that causes a hard-reset.
+ *       She may pass a NULL pointer to uninstall the hack.
+ *
+ * RETURNS: 0 on success, -errno on error.
  */
 int
-installConsoleCtrlXHack(int magicChar);
+installConsoleCtrlXHack(int magicChar, void (*board_reset_fun)());
 
 /* 
  * getConsoleCtrlChar()

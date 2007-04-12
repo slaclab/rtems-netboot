@@ -7,6 +7,7 @@
 #include <rtems/termiostypes.h>
 #include <bsp.h>
 #include <stdio.h>
+#include <errno.h>
 
 #include <ctrlx.h>
 
@@ -19,6 +20,8 @@ static int specialChars[10] = {0};
 static int numSpecialChars  =  -1; /* can't add chars prior to installing hack */
 
 static int lastSpecialChar = -1;
+
+static void (*resetFun)()  = 0;
 
 int
 getConsoleSpecialChar(void)
@@ -40,14 +43,14 @@ char                     c;
 	 * (e.g., do not do special processing during ansiQuery...
 	 */
 	if ( (tty->termios.c_lflag & ICANON) ) {
-		printk(">%c\n",ch);
 
 		/* did they just press Ctrl-X? */
 		if (rebootChar == ch) {
 			/* OK, we shouldn't call anything from IRQ context,
 			 * but for reboot - who cares...
 			 */
-			rtemsReboot();
+			if ( resetFun )
+				resetFun();
 		}
 
 		if ( lastSpecialChar < 0 ) {
@@ -87,9 +90,29 @@ addConsoleSpecialChar(int ch)
 }
 
 int
-installConsoleCtrlXHack(int magicChar)
+installConsoleCtrlXHack(int magicChar, void (*reset_fun)())
 {
 int				dsc;
+unsigned long   flags;
+int             rval = -EINVAL;
+
+	if ( ioctl(0,TIOCGETD,&dsc) )
+		return -errno;
+
+	rtems_interrupt_disable(flags);
+
+	if ( !reset_fun ) {
+		if ( linesw[dsc].l_rint == incharIntercept ) {
+			/* uninstall */
+			resetFun           = 0;
+			rebootChar         = CTRL_X;
+			linesw[dsc].l_rint = 0;
+			rval               = 0;	
+		}
+		rtems_interrupt_enable(flags);
+		/* bad argument */
+		return rval;
+    }
 
 	if (magicChar)
 		rebootChar=magicChar;
@@ -98,21 +121,17 @@ int				dsc;
 	 * network lookup and/or loading is going on...
 	 */
 
-	/* 
-	 * Start with retrieving the original ldisc...
-	 */
-	assert(0==ioctl(0,TIOCGETD,&dsc));
-
 	if ( linesw[dsc].l_rint ) {
+		rtems_interrupt_enable(flags);
 		fprintf(stderr,"Current line discipline already has l_rint set -- unablt to install hack\n");
-		return -1;
+		return -ENOSPC;
 	}
 
 	/* install hack */
 	linesw[dsc].l_rint = incharIntercept;
 
-	assert(0==ioctl(0,TIOCSETD,&dsc));
-
 	numSpecialChars = 0;
+
+	rtems_interrupt_enable(flags);
 	return 0;
 }
