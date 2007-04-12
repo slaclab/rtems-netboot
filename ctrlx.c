@@ -123,7 +123,7 @@ int             rval = -EINVAL;
 
 	if ( linesw[dsc].l_rint ) {
 		rtems_interrupt_enable(flags);
-		fprintf(stderr,"Current line discipline already has l_rint set -- unablt to install hack\n");
+		fprintf(stderr,"Current line discipline already has l_rint set -- unable to install hack\n");
 		return -ENOSPC;
 	}
 
