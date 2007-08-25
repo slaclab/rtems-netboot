@@ -11,7 +11,13 @@
 
 #include <ctrlx.h>
 
+#include "minversion.h"
+
 #define  CTRL_X 030
+
+#if RTEMS_ISMINVERSION(4,7,99)
+#define linesw rtems_termios_linesw
+#endif
 
 
 static int rebootChar = CTRL_X;
