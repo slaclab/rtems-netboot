@@ -67,7 +67,7 @@ APPS=netboot
 ##endif
 APPS+=libnetboot
 
-mkelf=$(1:%=o-optimize/%$(EXTENS))
+mkelf=$(1:%=$(ARCH)/%$(EXTENS))
 
 PROGELF=$(foreach i,$(filter-out lib%,$(APPS)),$(call mkelf,$i))
 LIBRS  =$(patsubst lib%,$(ARCH)/lib%.a,$(filter lib%,$(APPS)))
