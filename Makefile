@@ -160,9 +160,10 @@ install: install-imgs install-libs install-hdrs
 
 clean:
 	$(RM) $(TMPIMG) $(LINKBINS) $(LINKOBJS) map
-	$(MAKE) -f Makefile.rtems clean
+	$(MAKE) -f Makefile.rtems $@
 
 distclean: clean
+	$(MAKE) -f Makefile.rtems $@
 
 balla:
 	echo $(FINALTGT)
