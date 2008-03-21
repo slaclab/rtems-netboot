@@ -63,14 +63,28 @@
 #endif
 
 #ifdef BSP_NVRAM_BOOTPARMS_END
-#define NVRAM_END		((unsigned char*)(BSP_NVRAM_BOOTPARMS_END))
+#define NVRAM_SIZE		(((unsigned char*)(BSP_NVRAM_BOOTPARMS_END)) - NVRAM_START)
 #endif
 
-#ifdef NVRAM_START
+#ifdef BSP_EEPROM_BOOTPARMS_NAME
+#define EEPROM_NAME BSP_EEPROM_BOOTPARMS_NAME
+#endif
+
+#ifdef BSP_EEPROM_BOOTPARMS_SIZE
+#define NVRAM_SIZE BSP_EEPROM_BOOTPARMS_SIZE
+#endif
+
+#ifdef  BSP_EEPROM_BOOTPARMS_OFFSET
+#define EEPROM_OFFSET BSP_EEPROM_BOOTPARMS_OFFSET
+#endif
+
+#if defined(NVRAM_START) || defined(EEPROM_NAME)
 /* CHANGE THE SIGNATURE WHEN CHANGING THE NVRAM LAYOUT */
 #define NVRAM_SIGN		0xcafe										/* signature/version */
-#define NVRAM_STR_START	(NVRAM_START + 2*sizeof(unsigned short))
+#define NVRAM_SIGN_SZ	(2*sizeof(unsigned short))
 #endif
+
+#define NVRAM_STR_START(start)	(((unsigned char*)(start)) + NVRAM_SIGN_SZ)
 
 #ifndef BSP_HAS_COMMANDLINEBUF
 #define COMMANDLINEBUF_TAG \
@@ -192,7 +206,7 @@ typedef struct ParmRec_ {
 
 #ifndef NVRAM_READONLY
 static unsigned short
-appendNVRAM(NetConfigCtxt c, unsigned char **pnvram, int i_parm);
+appendNVRAM(NetConfigCtxt c, unsigned char **pnvram, int i_parm, unsigned char *end);
 
 static void
 writeNVRAM(NetConfigCtxt c);
@@ -1086,7 +1100,7 @@ return rval; /* OK to write NVRAM */
 }
 
 static unsigned short
-appendNVRAM(NetConfigCtxt c, unsigned char **pnvram, int i_parm)
+appendNVRAM(NetConfigCtxt c, unsigned char **pnvram, int i_parm, unsigned char *end)
 {
 unsigned char *src, *dst;
 unsigned short sum;
@@ -1102,20 +1116,20 @@ unsigned char *jobs[3], **job;
 	dst=*pnvram;
 
 	for (job=jobs; *job; job++) {
-		if ( job>jobs && dst<NVRAM_END-1 ) {
+		if ( job>jobs && dst<end-1 ) {
 			/* opening quote */
 			sum += (*dst++='\'');
 		}
-		for (src=*job; *src && dst<NVRAM_END-1; ) {
+		for (src=*job; *src && dst<end-1; ) {
 			/* handle quotes */
 			if ( '\'' == *src ) {
-				if ( dst >= NVRAM_END-2 )
+				if ( dst >= end-2 )
 					goto err;
 				sum += (*dst++='\'');
 			}
 			sum += (*dst++=*src++);
 		}
-		if ( job>jobs && dst<NVRAM_END-1 ) {
+		if ( job>jobs && dst<end-1 ) {
 			/* closing quote */
 			sum += (*dst++='\'');
 		}
@@ -1133,32 +1147,134 @@ err:
 	return sum;
 }
 
+#ifdef EEPROM_NAME
+static int writeEEPROM(NetConfigCtxt c, unsigned char *buf, int sz)
+{
+int fd;
+int rval = -1;
+
+	if ( ( fd = open(EEPROM_NAME, O_WRONLY) ) < 0 ) {
+		fprintf(c->err,"opening EEPROM failed: %s; NVRAM *NOT* written\n", strerror(errno));
+		goto cleanup;
+	}
+#ifdef EEPROM_OFFSET
+	if ( (off_t)-1 == lseek(fd, EEPROM_OFFSET, SEEK_SET) ) {
+		fprintf(c->err,"positioning EEPROM failed: %s; NVRAM *NOT* written\n", strerror(errno));
+		goto cleanup;
+	}
+#endif
+	if ( sz != (rval = write(fd, buf, sz)) ) {
+		if ( rval < 0 ) 
+			fprintf(c->err,"writing EEPROM failed: %s; NVRAM *NOT* written\n", strerror(errno));
+		else
+			fprintf(c->err,"writing EEPROM failed; only %i out of %i bytes written\n", rval, sz);
+			if ( rval )
+				fprintf(c->err,"--> NVRAM possibly CORRUPT\n");
+		rval = -1;
+	} else {
+		rval = 0;
+	}
+
+cleanup:
+	if ( fd >= 0 && close(fd) ) {
+		fprintf(c->err,"closing EEPROM failed: %s; NVRAM possibly CORRUPT\n", strerror(errno));
+		return -1;
+	}
+	return rval;
+}
+
+static int readEEPROM(NetConfigCtxt c, unsigned char *buf)
+{
+int fd;
+int rval = -1;
+
+	if ( ( fd = open(EEPROM_NAME, O_RDONLY) ) < 0 ) {
+		fprintf(c->err,"opening EEPROM failed: %s; NVRAM *NOT* read\n", strerror(errno));
+		goto cleanup;
+	}
+#ifdef EEPROM_OFFSET
+	if ( (off_t)-1 == lseek(fd, EEPROM_OFFSET, SEEK_SET) ) {
+		fprintf(c->err,"positioning EEPROM failed: %s; NVRAM *NOT* read\n", strerror(errno));
+		goto cleanup;
+	}
+#endif
+	if ( NVRAM_SIZE != (rval = read(fd, buf, NVRAM_SIZE)) ) {
+		if ( rval < 0 ) 
+			fprintf(c->err,"reading EEPROM failed: %s; NVRAM *NOT* read\n", strerror(errno));
+		else
+			fprintf(c->err,"reading EEPROM failed; only %i out of %i bytes read\n", rval, NVRAM_SIZE);
+		rval = -1;
+	} else {
+		rval = 0;
+	}
+
+cleanup:
+	if ( fd >= 0 && close(fd) ) {
+		fprintf(c->err,"closing EEPROM failed: %s; NVRAM *NOT* read\n", strerror(errno));
+		return -1;
+	}
+	return rval;	
+}
+#endif
+
 static void
 writeNVRAM(NetConfigCtxt c)
 {
-unsigned char	*nvchpt=NVRAM_STR_START;
+unsigned char	*nvchpt;
+unsigned char   *start;
 unsigned short	sum;
 Parm			p;
 int				i;
+unsigned        sz;
+
+#ifdef NVRAM_START
+		start  = NVRAM_START;
+#elif defined(EEPROM_NAME)
+		if ( ! (start = malloc(NVRAM_SIZE)) ) {
+			fprintf(c->err,"writeNVRAM: malloc failed; NVRAM **NOT** written\n");
+			return;
+		}
+#else
+#error "Configuration error; either NVRAM_START or EEPROM_NAME must be defined"
+#endif
+
+#ifdef BSP_BOOTPARMS_WRITE_ENABLE
+		BSP_BOOTPARMS_WRITE_ENABLE();
+#endif
+
+		nvchpt = NVRAM_STR_START(start);
 
 		sum = 0;
 		for (p=c->parmList, i=0; p->name; p++,i++) {
 			if ( p->flags & FLAG_UNSUPP )
 				continue;
-			sum += appendNVRAM(c, &nvchpt, i);
+			sum += appendNVRAM(c, &nvchpt, i, start + NVRAM_SIZE);
 			*nvchpt=0;
 		}
 		/* tag the end - there is space for the terminating '\0', it's safe */
 		*nvchpt=0;
+		sz = (nvchpt - start) + 1;
 
-		nvchpt=NVRAM_STR_START;
+		nvchpt = NVRAM_STR_START(start);
+
 		sum += (*--nvchpt=(NVRAM_SIGN & 0xff));
 		sum += (*--nvchpt=((NVRAM_SIGN>>8) & 0xff));
 		*--nvchpt=sum&0xff;
 		*--nvchpt=((sum>>8)&0xff);
-		fprintf(c->out,"\nNVRAM configuration updated\n");
-}
+
+#ifdef EEPROM_NAME
+		i = writeEEPROM(c, start, sz);
+		free(start);
+		if ( ! i )
 #endif
+			fprintf(c->out,"\nNVRAM configuration updated\n");
+
+#ifdef BSP_BOOTPARMS_WRITE_DISABLE
+		BSP_BOOTPARMS_WRITE_DISABLE();
+#endif
+}
+
+#endif /* NVRAM_READONLY */
 
 
 /* Clean out the parameter list; NVRAM parameters with NULL values are not present
@@ -1176,42 +1292,63 @@ Parm p;
 	}
 }
 
-#ifdef NVRAM_START
+#if defined(NVRAM_START) || defined(EEPROM_NAME)
 static int
 readNVRAM(NetConfigCtxt c)
 {
 Parm			p;
 unsigned short	sum,tag;
-unsigned char	*nvchpt=NVRAM_START;
-char            *str, *pch, *end;
+unsigned char	*nvchpt, *lim;
+char            *pch, *end;
+char            *str   = 0;
+int             rval   = 0;
+unsigned char	*start = 0;
 
-	sum=(*nvchpt++)<<8;
-	sum+=(*nvchpt++);
-	sum=-sum;
-	sum+=(tag=*nvchpt++);
-	tag= (tag<<8) | *nvchpt;
-	sum+=*nvchpt++;
+#ifdef NVRAM_START
+	start = NVRAM_START;
+#elif defined(EEPROM_NAME)
+	if ( ! (start = malloc(NVRAM_SIZE)) ) {
+		fprintf(c->err, "readNVRAM: malloc failed\n");
+		goto cleanup;
+	}
+	if ( readEEPROM(c, start) )
+		goto cleanup; /* message already printed */
+#else
+#error "Configuration error; either NVRAM_START or EEPROM_NAME must be defined"
+#endif
+
+	nvchpt = start;
+
+	lim  = nvchpt + NVRAM_SIZE;
+
+	sum  = (*nvchpt++)<<8;
+	sum += (*nvchpt++);
+	sum  = -sum;
+	sum += (tag=*nvchpt++);
+	tag  = (tag<<8) | *nvchpt;
+	sum += *nvchpt++;
+
 	if (tag != NVRAM_SIGN) {
 			fprintf(c->err,"No NVRAM signature found; compiled for: 0x%04x; found: 0x%04x\n",
 							NVRAM_SIGN,
 							tag);
-			return 0;
+			goto cleanup;
 	}
-	str=(char*)nvchpt;
+	pch=(char*)nvchpt;
 	/* verify checksum */
-	while (*nvchpt && nvchpt<NVRAM_END)
+	while (*nvchpt && nvchpt < lim)
 			sum+=*nvchpt++;
 
 	if (*nvchpt) {
 			fprintf(c->err,"No end of string found in NVRAM\n");
-			return 0;
+			goto cleanup;
 	}
 	if (sum) {
 			fprintf(c->err,"NVRAM checksum error\n");
-			return 0;
+			goto cleanup;
 	}
 	/* OK, we found a valid string */
-	str = strdup(str);
+	str = strdup(pch);
 
 	cleanList(c);
 
@@ -1220,7 +1357,7 @@ char            *str, *pch, *end;
 		while (' '==*pch) {
 			if (!*++pch)
 				/* end of string reached; bail out */
-				goto cleanup;
+				goto success;
 		}
 		if ( (end=strchr(pch,'=')) ) {
 			char *val=++end;
@@ -1261,9 +1398,16 @@ char            *str, *pch, *end;
 		}
 	}
 
+success:
+
+	rval = 1;
+
 cleanup:
+#ifdef EEPROM_NAME
+	free(start);
+#endif
 	free(str);
-	return 1;
+	return rval;
 }
 
 #elif defined(NVRAM_GETVAR)
@@ -1310,7 +1454,7 @@ int i, min, max;
 
 		if ( ! val ) {
 			if ( (p->flags & FLAG_MAND) && (i>=min && i<max) ) {
-				fprintf(stderr,"Mandatory boot parameter '%s' missing -- please write to environment\n", p->name);
+				fprintf(c->err,"Mandatory boot parameter '%s' missing -- please write to environment\n", p->name);
 				rval = 0;
 			}
 			continue;

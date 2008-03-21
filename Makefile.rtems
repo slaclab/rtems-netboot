@@ -63,6 +63,7 @@ include $(RTEMS_ROOT)/make/lib.cfg
 DEFINES_coredump += -DCOREDUMP_APP
 
 DEFINES += -DWINS_LINE_DISC ${DEFINES_${PGM}} ${DEFINES_${LIB}}
+DEFINES += $(USR_DEFINES)
 # -DUSE_SHELL
 CPPFLAGS += -I. -I$(exec_prefix)/include
 CFLAGS += $(DEBUG)
@@ -72,7 +73,7 @@ DEFINES+=-DNVRAM_READONLY -DNVRAM_UCDIMM '-DBSP_mem_size=(1024*1024*8)'
 C_PIECES += uC5282_mover
 endif
 
-ifneq "$(filter $(RTEMS_BSP),beatnik svgm)xx" "xx"
+ifneq "$(filter $(RTEMS_BSP_FAMILY),beatnik svgm mvme3100)xx" "xx"
 DEFINES+=-DBSP_HAS_COMMANDLINEBUF
 endif
 

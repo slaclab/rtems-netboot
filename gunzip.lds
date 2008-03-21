@@ -27,7 +27,7 @@ SECTIONS {
 	 * is loaded into the flash however. It is copied
 	 * to ram by init code
 	 */
-	.data DEST + __rtems_end - __rtems_start : AT( __zl_etext ) {
+	.data DEST + __rtems_end : AT( __zl_etext ) {
 	__zl_data_start = . ;
 		gunzip.o(.sdata)
 		gunzip.o(.rodata*)
