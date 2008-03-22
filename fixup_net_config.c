@@ -184,9 +184,17 @@ Parm p;
 			 * network configuration which is invalid
 			 * if we have no networking
 			 */
-			if (&net_config) {
+			{
+			/* recent gcc says &net_config is always true
+			 * but it could in fact be supplied by the linker
+			 * which means it could be 0. Hence we use a dummy
+			 * variable which seems to silence gcc-4.2.2 for now
+			 */
+			void *tester = &net_config;
+			if (tester) {
 				*p->pval=malloc(strlen(s)+1);
 				strcpy(*p->pval,s);
+			}
 			}
 			return 0;
 		}
