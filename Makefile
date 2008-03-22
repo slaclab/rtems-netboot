@@ -71,9 +71,6 @@ mkelf=$(1:%=$(ARCH)/%$(EXTENS))
 
 PROGELF=$(foreach i,$(filter-out lib%,$(APPS)),$(call mkelf,$i))
 LIBRS  =$(patsubst lib%,$(ARCH)/lib%.a,$(filter lib%,$(APPS)))
-# must still terminate in ".bin"
-EXTENS=.nxe
-IMGEXT=.flashimg.bin
 TMPNAM=tmp
 MAKEFILE=Makefile
 
@@ -85,6 +82,14 @@ SCRIPTS=smonscript.st reflash.st
 include $(RTEMS_MAKEFILE_PATH)/Makefile.inc
 include $(RTEMS_CUSTOM)
 include $(CONFIG.CC)
+
+ifdef DOWNEXT
+EXTENS=.exe
+else
+EXTENS=.nxe
+endif
+# must still terminate in ".bin"
+IMGEXT=.flashimg.bin
 
 #CC=$(CROSS_COMPILE)gcc
 #LD=$(CROSS_COMPILE)ld
