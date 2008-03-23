@@ -1,6 +1,6 @@
 $Id$
 
-T. Straumann, 2005/4/26, 2005/10/14
+T. Straumann, 2005/4/26, 2005/10/14, 2008/3/20
 
 For general 'netboot' usage information please consult
 the file README.netboot.
@@ -54,8 +54,9 @@ I) Programming the Flash.
 
           tftpGet -c<client> -s<server> <other parms> -f<path>/netboot.flashimg.bin
 
-       write down the load address and image size which must
-       be converted to hex. Note that the image size is also
+       write down the load address and image size which may
+       with a '&' indicating that the following number is
+       a decimal number. Note that the image size is also
        required by the 'startup script', see below.
 
        Now the flash is ready to be programmed - make sure
@@ -63,16 +64,21 @@ I) Programming the Flash.
 
 	      flashProgram -s<load address> -n<image size> -v
 
+       Make sure not to omit the '&' character if you copy
+       the image size from the info printed by tftpGet.
+
 	   This burns the image to the start of flash0.
 
        After burning the flash, the startup command must
        be checked for a change in image size since this
        information is needed for the 'bmw' block copy command.
+       (The 'bmw' block copy command is not needed on the
+       mvme3100.)
        
        BTW: Eric Norum wisely recommends to write-protect the
             MotLoad flash by removing the respective jumper
             (I believe it is J9, RTM). This is board-dependent,
-            i.e., the 6100 and 5500 are different - RTM.
+            i.e., the 6100, 5500 and 3100 are all different - RTM.
 
        b3) Copying from master over VME backplane and burning from MotLoad 
        -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -
@@ -133,18 +139,44 @@ II) Starting 'netboot'
 It is recommended to set the 'mot-scipt-boot' environment
 variable in order to automatically start netboot:
 
+For the following you need to know the starting address
+of the flash-area which you can find usint the MotLoad
+'flashShow' comand:
+
+MVME3100> flashShow
+Device-Name  Base-Address,Size  Device-Size,Count  Boot  Type
+/dev/flash0  F8000000,08000000  04000000,00000002  Yes   AMD 29LV160
+
+I.e., on this mvme3100 flash starts at F8000000.
+
+Program the boot script with the MotLoad command
+'gevEdit mot-script-boot':
+
    gevEdit mot-script-boot
 
    netShut
-   bmw -af2000000 -b<f2000000 + image size> -c04000000
+   buf = malloc 1000000
+   bmw -a<flash-start> -b<flash-start + image size> -cbuf
    rs  -nr3 -d0
    rs  -nr4 -d0
-   go  -a04000000
+   go  -abuf
 
 =================================================
-NOTE: on the mvme6100, the flash0 is at f4000000,
-      hence the 'bmw' command needs to be adapted.
+NOTE: You need to compute the end address (-b argument)
+      manually, converting the decimal image_size to
+      hex.
 =================================================
+
+The MVME3100 is capable of executing code right out
+of the flash, hence there is no need for copying into
+RAM which simplifies the command sequence:
+
+Simpler (MVME3100-only) Command Sequence:
+
+    netShut
+    rs -nr3 -d0
+    rs -nr4 -d0
+    go -a<flash_start>
 
 This chooses the start of the flash0 area. The image size
 must match the real image size (or exceed it). The target
@@ -188,3 +220,6 @@ NVRAM usage: 'netboot' reserves/uses the first 4k block
              the running GeSys prompt -- you must make
              sure, GeSys and netboot share the same
              version of 'nvram.c'!
+             
+             The mvme3100 has no NVRAM but stores non-
+             volatile parameters in EEPROM.			

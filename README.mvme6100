@@ -1,6 +1,12 @@
 $Id$
 
-README.netboot and README.mvme5500 cover everything.
+README.netboot  (netboot usage)
+
+and
+
+README.mvme5500 (how to burn netboot into flash)
+
+cover everything.
 
 The comments about bugs in the 'mvme5500' BSP do not apply
 to the mvme6100 AKA 'beatnik' BSP (which also supports the 5500 board).
