@@ -136,12 +136,13 @@ int  i;
 }
 #define NVRAM_GETVAR(name)	bev_remap(name)
 
+#ifdef SPC_REBOOT
 static void do_hard_reset()
 {
 	bsp_reset(0);
 }
-
 #define rtemsReboot do_hard_reset
+#endif
 
 #endif
 
