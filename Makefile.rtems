@@ -86,7 +86,7 @@ endif
 
 LD_PATHS  += $(exec_prefix)/lib
 #LD_LIBS   += -lcexp -lelf -lreadline -ltermcap -lregexp
-LD_LIBS   += -ltecla_r -lrtemsNfs
+LD_LIBS   += -ltecla_r -lnfs
 #LD_LIBS   += -lreadline -ltermcap
 #LDFLAGS   += -L/usr/local/rtems/powerpc-rtems/lib -Wl,-Map,map
 #LDFLAGS += -Wl,--section-start,.image_start=0x300000 -Wl,--section-start,.data=0x500000
