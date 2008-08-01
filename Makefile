@@ -81,7 +81,8 @@ SCRIPTS=smonscript.st reflash.st
 
 include $(RTEMS_MAKEFILE_PATH)/Makefile.inc
 include $(RTEMS_CUSTOM)
-include $(CONFIG.CC)
+include $(RTEMS_ROOT)/make/leaf.cfg
+#include $(CONFIG.CC)
 
 ifdef DOWNEXT
 EXTENS=.exe
