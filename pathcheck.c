@@ -27,7 +27,9 @@
 #endif
 
 static char *dflt_fname  = "rtems.bin";
+#if defined(NFS_SUPPORT) || defined(TFTP_SUPPORT) || defined(RSH_SUPPORT)
 static char *path_prefix = 0;
+#endif
 
 static int
 pathType(const char *path)
@@ -103,6 +105,7 @@ int help = 0, rc;
 	return LOCAL_PATH;
 }
 
+#if defined(NFS_SUPPORT) || defined(TFTP_SUPPORT) || defined(RSH_SUPPORT)
 static char *buildPath(int type, char *path, char *prefix)
 {
 	if ( ! VALID_PATH(type) )
@@ -193,6 +196,7 @@ char *fn   = 0;
 	sprintf(rval,"%s%s",path ? path : "", fn ? fn : "");
 	return rval;
 }
+#endif
 
 #define IDOT_STR_LEN	20	/* enough to hold an IP4 dotted address or "BOOTP_HOST" */
 
