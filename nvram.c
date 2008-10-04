@@ -4,6 +4,9 @@
  *  $Id$
  */
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
 
 #ifdef __rtems__
 #include <rtems.h>
@@ -86,7 +89,7 @@
 
 #define NVRAM_STR_START(start)	(((unsigned char*)(start)) + NVRAM_SIGN_SZ)
 
-#ifndef BSP_HAS_COMMANDLINEBUF
+#ifndef HAVE_BSP_COMMANDLINE_STRING
 #define COMMANDLINEBUF_TAG \
 	'B','S','P', \
 	'_',         \

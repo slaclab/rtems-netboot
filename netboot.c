@@ -4,6 +4,10 @@
  *  $Id$
  */
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
 #define ISMINVERSION(ma,mi,re) \
 	(    __RTEMS_MAJOR__  > (ma)	\
 	 || (__RTEMS_MAJOR__ == (ma) && __RTEMS_MINOR__  > (mi))	\
@@ -484,7 +488,7 @@ register unsigned long algn;
 		goto cleanup; /* error message has already been printed */
 	}
 
-#ifndef BSP_HAS_COMMANDLINEBUF
+#ifndef HAVE_BSP_COMMANDLINE_STRING
 	/* search command line tag in image and copy the commandline there */ 
 	{
 	register char *chpt;

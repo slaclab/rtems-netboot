@@ -41,8 +41,8 @@
  */
 
 /* variables defined by the linker script */
-extern char __zimage_start[];
-extern char __zimage_end[];
+extern unsigned char __zimage_start[];
+extern unsigned char __zimage_end[];
 
 extern unsigned long __zl_bss_start[];
 extern unsigned long __zl_bss_end[];
@@ -78,6 +78,9 @@ extern unsigned long *__FIXUP_END[];
 #undef USE_SMON_STACK
 #endif
 
+/* If DEST is undefined then we hope the linker script will supply it */
+extern char DEST[];
+
 #ifdef USE_SMON_PRINT
 static void zlprint(char *s);
 static void zlstop(unsigned v1, unsigned v2, unsigned v3);
@@ -94,6 +97,7 @@ static void gunzip();
 #define __str(a) #a
 #define str(a) __str(a)
 
+#if 0 /* TSILL */
 /* gcc -O4 doesn't preserve start() at the beginning; loadup stack pointer and jump to start */
 __asm__ (
 	"  .globl __zl_bss_end      \n"
@@ -107,6 +111,7 @@ __asm__ (
 #endif
 	"	b start					\n"
 );
+#endif
 
 
 #if 0
@@ -231,7 +236,7 @@ static void gunzip(void)
 {
 z_stream zs;
 unsigned skip = 10, flags, rval;
-char	 *src = __zimage_start;
+unsigned char	 *src = __zimage_start;
 
 	flags = src[3];
 	if (DEFLATED != src[2] || (flags & RESERVED)) {
@@ -254,7 +259,7 @@ char	 *src = __zimage_start;
 	zs.total_in  = 0;
 
 	zs.next_out  = (void*)DEST;
-	zs.avail_out = (unsigned)&__zl_data_start - DEST;
+	zs.avail_out = (unsigned)&__zl_data_start - (unsigned)DEST;
 	zs.total_out = 0;
 
 	zs.zalloc    = early_malloc;
@@ -276,7 +281,7 @@ char	 *src = __zimage_start;
 	zlprint("inflate done\n");
 	inflateEnd(&zs);
 	/* flush the cache */
-	for (src=(void*)DEST; src < (char*)&__zl_data_start; src+=CACHE_LINE_SIZE)
+	for (src=(void*)DEST; src < (unsigned char*)&__zl_data_start; src+=CACHE_LINE_SIZE)
 		__asm__ __volatile__("dcbst 0, %0; icbi 0, %0"::"r"(src));
 	__asm__ __volatile__("sync; isync");
 	zlprint("done\n");

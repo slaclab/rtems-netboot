@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
 #include <rtems.h>
 #include <rtems/rtems_bsdnet.h>
 #include <rtems/rtems_mii_ioctl.h>
@@ -38,7 +42,7 @@ extern int rtems_bsdnet_loopattach(struct rtems_bsdnet_ifconfig*, int);
  */
 #include "nvram.c"
 
-#ifndef BSP_HAS_COMMANDLINEBUF
+#ifndef HAVE_BSP_COMMANDLINE_STRING
 /* netboot may override stuff in the commandline
  * but we need to provide specially tagged space (which is intended to be
  * overwritten by netboot):
@@ -221,7 +225,7 @@ struct rtems_bsdnet_ifconfig *ifc;
 		unlock();
 	}
 
-#ifndef BSP_HAS_COMMANDLINEBUF
+#ifndef HAVE_BSP_COMMANDLINE_STRING
 	if ( !argline )
 		argline = cmdlinebuf;
 #endif
