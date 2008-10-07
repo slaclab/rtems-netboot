@@ -44,7 +44,7 @@ fixup_net_config.o: nvram.c
 netboot.o: nvram.c pathcheck.c
 
 if NETBOOT_COMPRESSED
-%.tmpbin: %
+%.tmpbin: %$(EXEEXT)
 	$(RM) $@
 	$(OBJCOPY) -Obinary $< $@
 
