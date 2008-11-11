@@ -977,6 +977,7 @@ rtems_task Init(
 	fprintf(stderr,"$Id$\n");
 	fprintf(stderr,"CVS tag $Name$\n");
 
+#ifndef NVRAM_NONE
 	if (!readNVRAM(&ctx)) {
 #ifndef NVRAM_READONLY
 		fprintf(stderr,"No valid NVRAM settings found - initializing\n");
@@ -985,6 +986,7 @@ rtems_task Init(
 		rtems_panic("No valid NVRAM settings found - unable to proceed :-(\n");
 #endif
 	}
+#endif
 
 #ifndef COREDUMP_APP
 #ifdef __PPC__

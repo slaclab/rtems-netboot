@@ -87,6 +87,16 @@
 #define NVRAM_SIGN_SZ	(2*sizeof(unsigned short))
 #endif
 
+#if ! (defined(NVRAM_START) || defined(EEPROM_NAME) || defined(NVRAM_GETVAR))
+/* No NVRAM at all */
+#ifndef NVRAM_READONLY
+#define NVRAM_READONLY
+#endif
+#ifndef NVRAM_NONE
+#define NVRAM_NONE
+#endif
+#endif
+
 #define NVRAM_STR_START(start)	(((unsigned char*)(start)) + NVRAM_SIGN_SZ)
 
 #ifndef HAVE_BSP_COMMANDLINE_STRING
@@ -1470,7 +1480,11 @@ int i, min, max;
 	return rval;
 }
 #else
-#error "NO readNVRAM implementation!"
+static int
+readNVRAM(NetConfigCtxt c)
+{
+	return 0;
+}
 #endif
 
 #ifndef __INSIDE_NETBOOT__
