@@ -11,11 +11,18 @@
 
 #include <ctrlx.h>
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#else
 #include "minversion.h"
+#ifndef 
+#define RTEMS_VERSION_ATLEAST RTEMS_ISMINVERSION
+#endif
+#endif
 
 #define  CTRL_X 030
 
-#if RTEMS_ISMINVERSION(4,7,99)
+#if RTEMS_VERSION_ATLEAST(4,7,99)
 #define linesw rtems_termios_linesw
 #endif
 

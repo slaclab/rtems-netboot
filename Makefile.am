@@ -7,6 +7,8 @@ EXEEXT=$(APPEXEEXT)
 
 libnetboot_a_SOURCES    = fixup_net_config.c pairxtract.c
 
+EXTRA_DIST              = nvram.c zlib.c pathcheck.c
+
 include_HEADERS         = libnetboot.h
 
 lib_LIBRARIES           = libnetboot.a
@@ -19,7 +21,10 @@ execimg_SCRIPTS         = netboot.flashimg.bin
 
 execimgdir              = $(exec_prefix)/img
 
-netboot_SOURCES         = netboot.c ctrlx.c termsize/term.c ctrlx.h 
+netboot_SOURCES         = netboot.c ctrlx.c termsize/term.c
+
+netboot_SOURCES        += ctrlx.h minversion.h
+
 EXTRA_netboot_SOURCES   = uC5282_mover.c
 
 netboot_LDADD           = $(LDADD_$(rtems_bsp))
