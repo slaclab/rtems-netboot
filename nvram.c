@@ -154,6 +154,7 @@ static void do_hard_reset()
 {
 	bsp_reset(0);
 }
+#undef  rtemsReboot
 #define rtemsReboot do_hard_reset
 #endif
 
