@@ -7,7 +7,7 @@ EXEEXT=$(APPEXEEXT)
 
 libnetboot_a_SOURCES    = fixup_net_config.c pairxtract.c
 
-EXTRA_DIST              = nvram.c zlib.c pathcheck.c
+EXTRA_DIST              = nvram.c zlib.c zlib.h pathcheck.c
 
 include_HEADERS         = libnetboot.h
 
@@ -19,11 +19,28 @@ bin_PROGRAMS            = netboot
 # pre-install anything that needs to be generated
 execimg_SCRIPTS         = netboot.flashimg.bin
 
+execimg_SCRIPTS        += $(SCRIPTS_$(rtems_bsp))
+
+SCRIPTS_svgm            = reflash.st smonscript.st
+
+EXTRA_DIST             += reflash.st smonscript.st
+
 execimgdir              = $(exec_prefix)/img
 
 netboot_SOURCES         = netboot.c ctrlx.c termsize/term.c
 
 netboot_SOURCES        += ctrlx.h minversion.h
+
+EXTRA_DIST             += gunzip.c gunzip.lds
+
+EXTRA_DIST             += nvram_hosttst.c nvram_hosttst.h
+
+EXTRA_DIST             += README.netboot
+EXTRA_DIST             += README.vgmflash
+EXTRA_DIST             += README.uC5282
+EXTRA_DIST             += README.mvme5500
+EXTRA_DIST             += README.mvme6100
+EXTRA_DIST             += README.mvme3100
 
 EXTRA_netboot_SOURCES   = uC5282_mover.c
 
@@ -67,9 +84,9 @@ FLASHSTART_svgm=0xfff80000
 LINKARGS=--defsym DEST=$(DEST) --defsym FLASHSTART=$(FLASHSTART_$(rtems_bsp)) -T$(LINKSCRIPT) $(LINKOBJS) --just-symbols=$(@:%.flashimg.bin=%$(EXEEXT))
 
 	
-%.flashimg.bin: $(LINKOBJS) %.gz $(LINKSCRIPT)
+%.flashimg.bin: %.gz $(LINKOBJS) $(LINKSCRIPT)
 	$(RM)   $@
-	$(LD) -o $@ $(LINKARGS) -Map linkmap --oformat=binary
+	$(LD) -o $@ $(LINKARGS) -Map linkmap --oformat=binary -bbinary $<
 else
 %.flashimg.bin: %$(EXEEXT)
 	$(OBJCOPY) -Obinary $< $@
