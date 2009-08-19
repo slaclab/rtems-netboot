@@ -135,7 +135,9 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 /* NETBOOT configuration */
 #define CONFIGURE_MAXIMUM_SEMAPHORES   	20 
 #define CONFIGURE_MAXIMUM_TASKS         10
+#if !ISMINVERSION(4,9,0)
 #define CONFIGURE_MAXIMUM_DEVICES       4
+#endif
 #define CONFIGURE_MAXIMUM_REGIONS       4
 #define CONFIGURE_MAXIMUM_MESSAGE_QUEUES	4
 #define CONFIGURE_MAXIMUM_DRIVERS		4
