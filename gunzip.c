@@ -63,30 +63,18 @@ extern unsigned long *__FIXUP_END[];
 
 #define CACHE_LINE_SIZE 32
 
-#define USE_SMON_STACK
-#define USE_SMON_PRINT
+#define TEST_LIMIT     0x10000
 
-#if DEST > 0x10000
-#define TEST_IN_RAM
-#endif
-
-#if !defined(TEST_IN_RAM)
-#undef USE_SMON_PRINT
-#endif
-
-#if DEST < 0x10000
-#undef USE_SMON_STACK
-#endif
-
-/* If DEST is undefined then we hope the linker script will supply it */
+/* DEST is supplied by the linker script */
 extern char DEST[];
+
+#define USE_SMON_PRINT (DEST >= (char*)TEST_LIMIT)
+#define TEST_IN_RAM    (DEST >= (char*)TEST_LIMIT)
 
 #ifdef USE_SMON_PRINT
 static void zlprint(char *s);
-static void zlstop(unsigned v1, unsigned v2, unsigned v3);
 #else
 #define zlprint(arg) do {} while(0)
-#define zlstop(arg,...) do {} while(0)
 #endif
 
 /* memory beyond the stack is free */
@@ -97,22 +85,26 @@ static void gunzip();
 #define __str(a) #a
 #define str(a) __str(a)
 
-#if 0 /* TSILL */
 /* gcc -O4 doesn't preserve start() at the beginning; loadup stack pointer and jump to start */
 __asm__ (
 	"  .globl __zl_bss_end      \n"
 	"  .globl _start			\n"
+	"  .globl DEST              \n"
+	"  .section \".text.start\",\"ax\",@progbits\n"
 	"_start:					\n"
-#if !defined(USE_SMON_STACK)
+	"   lis   3, "str(TEST_LIMIT)"@ha\n"
+	"   addi  3, 3, "str(TEST_LIMIT)"@l\n"
+	"   lis   4, DEST@ha        \n"
+	"   addi  4, 4, DEST@l      \n"
+	"   cmplw 4, 3              \n"
+	"   bge   start             \n"
 	"	lis   1,__zl_bss_end@ha	\n"
 	"	addi  1, 1, __zl_bss_end@l  \n"
 	"	addis 1, 1, "str(EARLY_STACK_SIZE)"\n"		/* allocate 64k of stack */
 	"	addi  1, 1, -16         \n"
-#endif
 	"	b start					\n"
+	"	.section \".text\"      \n"
 );
-#endif
-
 
 #if 0
 asm (
@@ -153,18 +145,18 @@ unsigned adj = getdiff((unsigned)getdiff + 8);
 
 #endif
 
-/*
+/* newer gcc uses stack anyways...
 void
 start(char *r3, char *r4, char *r5, char *r6) __attribute__ ((section(".text.start")));
 */
-
-
 
 void
 start(char *r3, char *r4, char *r5, char *r6)
 {
 register unsigned long *ps;	/* MUST NOT BE ON THE STACK (which might get destroyed) */
 register unsigned long *pd;	/* MUST NOT BE ON THE STACK (which might get destroyed) */
+
+	zlprint("entering 'start'\n");
 
 	/* copy the data section into ram */
 	for ( ps = __zl_etext, pd = __zl_data_start; pd < __zl_bss_start; )
@@ -181,22 +173,30 @@ register unsigned long *pd;	/* MUST NOT BE ON THE STACK (which might get destroy
 	/* call a routine, so we can use the new stack */
 	gunzip();
 	/* point of no return */
+	if ( TEST_IN_RAM ) {
 	__asm__ __volatile__(
 			"li %%r3,0\n"
 			"mr %%r4, %%r3\n"
 			"mr %%r5, %0\n"
 			"mr %%r6, %1\n"
 			"mr %%r7, %%r3\n"
-#if !defined(TEST_IN_RAM)
-			"mtlr	%0\n"
-			"blr\n"
-#else	
 			/* return to SMON */
 			"li	%%r10,0x63\n"
 			"sc\n"
-#endif
 			::"r"(DEST),"r"(&__zl_data_start)
 			: "r3","r4","r5","r6","r7","r10");
+	} else {
+	__asm__ __volatile__(
+			"li %%r3,0\n"
+			"mr %%r4, %%r3\n"
+			"mr %%r5, %0\n"
+			"mr %%r6, %1\n"
+			"mr %%r7, %%r3\n"
+			"mtlr	%0\n"
+			"blr\n"
+			::"r"(DEST),"r"(&__zl_data_start)
+			: "r3","r4","r5","r6","r7","r10");
+	}
 }
 
 /* must provide our own version because SVGM FLASH
@@ -300,22 +300,30 @@ const unsigned char *src=s;
 }
 
 #ifdef USE_SMON_PRINT
+
+#if 0
 static void
 zlputc(int ch)
 {
-__asm__ __volatile__("li %%r10, %0; sc"::"i"(0x20));
+if ( USE_SMON_PRINT )
+	__asm__ __volatile__("li %%r10, %0; sc"::"i"(0x20):"r10");
 }
+#endif
 
 static void
 zlprint(char *str)
 {
-__asm__ __volatile__("li %%r10, %0; sc"::"i"(0x21));
+if ( USE_SMON_PRINT )
+	__asm__ __volatile__("li %%r10, %0; mr %%r3, %1; sc"::"i"(0x21),"r"(str):"r3","r10");
 }
 
+#if 0
 static void
 zlstop(unsigned v1, unsigned v2, unsigned v3)
 {
-__asm__ __volatile__("li %%r10, %0; sc"::"i"(0x63));
+if ( USE_SMON_PRINT )
+	__asm__ __volatile__("li %%r10, %0; sc"::"i"(0x63):"r10");
 }
+#endif
 
 #endif
