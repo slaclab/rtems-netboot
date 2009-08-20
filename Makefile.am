@@ -47,7 +47,7 @@ EXTRA_netboot_SOURCES   = uC5282_mover.c
 netboot_LDADD           = $(LDADD_$(rtems_bsp))
 netboot_DEPENDENCIES    = $(LDADD_$(rtems_bsp))
 
-CLEANFILES              = $(execimg_SCRIPTS)
+CLEANFILES              = $(execimg_SCRIPTS) linkmap
 
 netboot_LDADD          += -ltecla_r $(NFSLIB)
 #AM_LDFLAGS             += -L../cexp/libtecla -L../rtemsNfs/src -L../rtemsNfs/proto
@@ -70,7 +70,7 @@ if NETBOOT_COMPRESSED
 	$(RM) $@
 	$(OBJCOPY) -Obinary $< $@
 
-%.gz:	%.tmpbin
+%.img.gz:	%.tmpbin
 	$(RM) $@
 	gzip -c9 $<  > $@
 
@@ -84,7 +84,7 @@ FLASHSTART_svgm=0xfff80000
 LINKARGS=--defsym DEST=$(DEST) --defsym FLASHSTART=$(FLASHSTART_$(rtems_bsp)) -T$(LINKSCRIPT) $(LINKOBJS) --just-symbols=$(@:%.flashimg.bin=%$(EXEEXT))
 
 	
-%.flashimg.bin: %.gz $(LINKOBJS) $(LINKSCRIPT)
+%.flashimg.bin: %.img.gz $(LINKOBJS) $(LINKSCRIPT)
 	$(RM)   $@
 	$(LD) -o $@ $(LINKARGS) -Map linkmap --oformat=binary -bbinary $<
 else
