@@ -1812,7 +1812,7 @@ nvramConfig()
 }
 #endif
 
-#ifdef __rtems__
+#if defined(__rtems__) && defined(HAVE_CEXP)
 #include <cexpHelp.h>
 
 CEXP_HELP_TAB_BEGIN(svgm_nvram)
