@@ -36,7 +36,7 @@ SECTIONS {
 		. = ALIGN ( 4 );
 	} /* > DATA */
 	__zl_bss_start = . ;
-	.bss : {
+	.bss (NOLOAD) : {
 		gunzip.o(.sbss)
 		gunzip.o(.bss)
 		. = ALIGN ( 16 );
@@ -44,7 +44,7 @@ SECTIONS {
 	__zl_bss_end = . ;
 
 	/* compressed 'netload' image appended here */
-	.zimage __zl_etext + __zl_bss_start - __zl_data_start : {
+	.zimage __zl_etext + __zl_bss_start - __zl_data_start : AT( __zl_etext + __zl_bss_start - __zl_data_start) {
 	__zimage_start = . ;
 		*.img.gz(*)
 	__zimage_end = . ;
