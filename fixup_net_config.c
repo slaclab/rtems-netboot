@@ -227,7 +227,11 @@ struct rtems_bsdnet_ifconfig *ifc;
 
 #ifndef HAVE_BSP_COMMANDLINE_STRING
 	if ( !argline )
+#ifdef HAVE_BSP_CMDLINE
+		argline = bsp_cmdline();
+#else
 		argline = cmdlinebuf;
+#endif
 #endif
 
 	if ( argline )
