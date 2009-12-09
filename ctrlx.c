@@ -52,19 +52,19 @@ int incharIntercept(int ch, struct rtems_termios_tty *tty)
 int                      i;
 char                     c;
 
+	/* did they just press Ctrl-X? */
+	if (rebootChar == ch) {
+		/* OK, we shouldn't call anything from IRQ context,
+		 * but for reboot - who cares...
+		 */
+		if ( resetFun )
+			resetFun();
+	}
+
 	/* Do special processing only in canonical mode
 	 * (e.g., do not do special processing during ansiQuery...
 	 */
 	if ( (tty->termios.c_lflag & ICANON) ) {
-
-		/* did they just press Ctrl-X? */
-		if (rebootChar == ch) {
-			/* OK, we shouldn't call anything from IRQ context,
-			 * but for reboot - who cares...
-			 */
-			if ( resetFun )
-				resetFun();
-		}
 
 		if ( lastSpecialChar < 0 ) {
 			for (i = 0; i<numSpecialChars; i++) {
@@ -144,6 +144,7 @@ int             rval = -EINVAL;
 	linesw[dsc].l_rint = incharIntercept;
 
 	numSpecialChars = 0;
+	resetFun        = reset_fun;
 
 	rtems_interrupt_enable(flags);
 	return 0;
