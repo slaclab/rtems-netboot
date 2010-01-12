@@ -142,7 +142,11 @@ int  i;
 #ifdef SPC_REBOOT
 static void do_hard_reset()
 {
-	bsp_reset(0);
+	bsp_reset(
+#if defined( __m68k__ ) && ! RTEMS_VERSION_ATLEAST(4,9,99)
+0
+#endif
+	);
 }
 #undef  rtemsReboot
 #define rtemsReboot do_hard_reset
