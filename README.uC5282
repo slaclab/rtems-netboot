@@ -87,4 +87,35 @@ that AUTOBOOT is never set to 0 -- otherwise the process
 can never be interrupted in case of a bad parameter setup
 or faulty netboot binary.
 
+Normally, netboot is linked to be executed out of RAM.
+The ucbootloader automatically copies from ROM to RAM
+if (and only if) the envvar RAMIMAGE is set to 'yes'.
+Hence, this setting is *required* for netboot to work
+(unless the build process was changed so that netboot
+can execute out of ROM. Note that the BSP already supports
+this by copying data and bss etc. into RAM if necessary).
+
+If the target board has a user flash area that exceeds
+the RAM size (or if copying the entire flash area would
+wipe vital ucbootloader RAM areas) then copying the
+ROM->RAM fails.
+
+As a workaround the envvar describing the user flash
+can be change to apparently reduce its size. E.g.,
+if the original description (16M flash) was
+
+_0=10000000:1000000:RW
+
+then we can break that into two partitions, the
+first one (which will be copied to RAM by 'go'
+if RAMIMAGE=yes) sized 1M, the second one describing
+the rest.
+This partitioning also has the advantage of not erasing
+the entire flash when 'program' is used to write
+a new image (this statement has not been verified but
+bases on assumptions).
+
+_0=10000000:100000:RW
+_1=10100000:f00000:RW
+
 T.S., 4/2007.
