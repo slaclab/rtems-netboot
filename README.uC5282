@@ -101,7 +101,7 @@ wipe vital ucbootloader RAM areas) then copying the
 ROM->RAM fails.
 
 As a workaround the envvar describing the user flash
-can be change to apparently reduce its size. E.g.,
+can be changed to apparently reduce its size. E.g.,
 if the original description (16M flash) was
 
 _0=10000000:1000000:RW
