@@ -57,7 +57,9 @@
 static int nfsInited     = 0;
 #endif
 
+#if ! RTEMS_VERSION_ATLEAST(4,9,99)
 static int tftpInited    = 0;
+#endif
 
 #ifndef COREDUMP_APP
 #define RSH_SUPPORT
@@ -950,7 +952,7 @@ rtems_task Init(
   Parm	p;
   int	i;
   NetConfigCtxtRec	ctx;
-  char	ch;
+  unsigned char	ch;
   int	secs;
 
 #ifndef USE_READLINE
@@ -1120,7 +1122,7 @@ rtems_task Init(
 	{
 			/* check if they want us to use bootp or not */
 			if (!enforceBootp) {
-				switch ( toupper(*boot_use_bootp) ) {
+				switch ( toupper((unsigned char)*boot_use_bootp) ) {
 					default:  enforceBootp = 1;  break;
 					case 'N': enforceBootp = -1; break;
 					case 'P': enforceBootp = 2;  break;
@@ -1229,7 +1231,7 @@ rtems_task Init(
 
 	}
 #else
-	if ( enforceBootp > 0 || 'Y' == toupper( *boot_use_bootp ) ) {
+	if ( enforceBootp > 0 || 'Y' == toupper( (unsigned char)*boot_use_bootp ) ) {
 		enforceBootp = 2;
 		strcpy(boot_use_bootp,"P");
 	}

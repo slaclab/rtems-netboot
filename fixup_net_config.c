@@ -67,7 +67,7 @@ static char *boot_my_media = 0;
 
 static char do_bootp()
 {
-	return boot_use_bootp ? toupper(*boot_use_bootp) : 'Y';
+	return boot_use_bootp ? toupper((unsigned char)*boot_use_bootp) : 'Y';
 }
 
 static void

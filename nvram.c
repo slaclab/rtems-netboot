@@ -694,7 +694,7 @@ int  result=0;
 				case 'p':
 				case 'P':
 						for (chpt=nval; *chpt; chpt++)
-							*chpt=toupper(*chpt);
+							*chpt=toupper((unsigned char)*chpt);
 						if (!*(nval+1))
 							break; /* acceptable */
 
@@ -917,7 +917,7 @@ int		rval = -1;
 	min = max = 0;
 	p = c->parmList + BOOTP_EN_IDX;
 	if ( p->pval && *p->pval ) {
-		switch ((mode = toupper( **p->pval ))) {
+		switch ((mode = toupper( (unsigned char)**p->pval ))) {
 			case 'P':	max = SERVERIP_IDX + 1; break;
 			case 'N':	max = NUM_PARMS    + 1; break;
 			default: break; /* means 'Y' */
@@ -927,7 +927,7 @@ int		rval = -1;
 	}
 
 	/* did they manually override anything ? */
-	switch ( toupper(override) ) {
+	switch ( toupper((unsigned char)override) ) {
 		case 'P':	max = SERVERIP_IDX + 1; break;
 		case 'D':	max = 0;                break;
 		case 'M':	max = NUM_PARMS + 1;    break;
@@ -1769,7 +1769,7 @@ struct termios ot,nt;
 		ch = toupper(ch);
 #else
 		char *resp=gl_get_line(c->gl, "OK to write NVRAM? [y]/n:", 0, -1);
-		ch = (resp && *resp) ? toupper(*resp) : 'Y';
+		ch = (resp && *resp) ? toupper((unsigned char)*resp) : 'Y';
 		if ( '\n' == ch || '\r' == ch )
 			ch = 'Y';
 #endif

@@ -1,3 +1,7 @@
+#ifndef RTEMS_VERSION_ATLEAST
+#error "missing macro RTEMS_VERSION_ATLEAST"
+#endif
+
 #define RSH_CMD			"cat "					/* Command for loading the image using RSH */
 
 #define DFLT_FNAME		dflt_fname
@@ -272,6 +276,108 @@ int  rc = 0;
 	return rc;
 }
 
+/* nfsMount is gone from 4.10 */
+
+#if RTEMS_VERSION_ATLEAST(4,9,99)
+
+/* convenience wrapper
+ *
+ * NOTE: this routine calls NON-REENTRANT
+ *       gethostbyname() if the host is
+ *       not in 'dot' notation.
+ */
+int
+nfsMount(char *uidhost, char *path, char *mntpoint)
+{
+struct stat								st;
+int										devl;
+char									*host;
+int										rval = -1;
+char									*dev =  0;
+
+	if (!uidhost || !path || !mntpoint) {
+		fprintf(stderr,"usage: nfsMount(""[uid.gid@]host"",""path"",""mountpoint"")\n");
+		nfsMountsShow(stderr);
+		return -1;
+	}
+
+	if ( !(dev = malloc((devl=strlen(uidhost) + 20 + strlen(path)+1))) ) {
+		fprintf(stderr,"nfsMount: out of memory\n");
+		return -1;
+	}
+
+	/* Try to create the mount point if nonexistent */
+	if (stat(mntpoint, &st)) {
+		if (ENOENT != errno) {
+			perror("nfsMount trying to create mount point - stat failed");
+			goto cleanup;
+		} else if (mkdir(mntpoint,0777)) {
+			perror("nfsMount trying to create mount point");
+			goto cleanup;
+		}
+	}
+
+	if ( !(host=strchr(uidhost,'@')) ) {
+		host = uidhost;
+	} else {
+		host++;
+	}
+
+	if (isdigit((unsigned char)*host)) {
+		/* avoid using gethostbyname */
+		sprintf(dev,"%s:%s",uidhost,path);
+	} else {
+		struct hostent *h;
+
+		/* copy the uid part (hostname will be
+		 * overwritten)
+		 */
+		strcpy(dev, uidhost);
+
+		/* NOTE NOTE NOTE: gethostbyname is NOT
+		 * thread safe. This is UGLY
+		 */
+
+/* BEGIN OF NON-THREAD SAFE REGION */
+
+		h = gethostbyname(host);
+
+		if ( !h ||
+			 !inet_ntop( AF_INET,
+					     (struct in_addr*)h->h_addr_list[0],
+						 dev  + (host - uidhost),
+						 devl - (host - uidhost) )
+			) {
+			fprintf(stderr,"nfsMount: host '%s' not found\n",host);
+			goto cleanup;
+		}
+
+/* END OF NON-THREAD SAFE REGION */
+
+		/* append ':<path>' */
+		strcat(dev,":");
+		strcat(dev,path);
+	}
+
+	printf("Trying to mount %s on %s\n",dev,mntpoint);
+
+	if (mount(dev,
+			  mntpoint,
+			  "nfs",
+ 			  RTEMS_FILESYSTEM_READ_WRITE,
+ 			  NULL)) {
+		perror("nfsMount - mount");
+		goto cleanup;
+	}
+
+	rval = 0;
+
+cleanup:
+	free(dev);
+	return rval;
+}
+#endif
+
 /* RETURNS -2 if mount is ok but file cannot be opened; leaves NFS mounted */
 static int isNfsPath(char **srvname, char *opath, int *perrfd, char **thepathp, MntDesc md)
 {
@@ -535,14 +641,18 @@ char	*ofn;
 	if ( perrfd )
 		*perrfd = -1;
 
-	if ( !(srvpart = buildPath(TFTP_PATH, opath, path_prefix)) )
-		return -11;
+	if ( !(srvpart = buildPath(TFTP_PATH, opath, path_prefix)) ) {
+		fd = -11;
+		goto cleanup;
+	}
 
+#if ! RTEMS_VERSION_ATLEAST(4,9,99)
  	if (!tftpInited && rtems_bsdnet_initialize_tftp_filesystem()) {
 		fprintf(stderr,"TFTP FS initialization failed - try NFS or RSH\n");
 		goto cleanup;
 	} else
 		tftpInited=1;
+#endif
 
 	fprintf(stderr,"Using TFTP for transfer\n");
 
