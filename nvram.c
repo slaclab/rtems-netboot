@@ -1442,7 +1442,7 @@ int i, min, max;
 
 	min = max = 0;
 	if ( (val = NVRAM_GETVAR("BP_ENBL")) ) {
-		switch ( toupper(*val) ) {
+		switch ( toupper((unsigned char)*val) ) {
 			case 'P':	max = SERVERIP_IDX + 1; break;
 			case 'N':	max = NUM_PARMS    + 1; break;
 			default: break; /* means 'Y' */
