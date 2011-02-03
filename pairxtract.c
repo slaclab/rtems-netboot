@@ -93,6 +93,10 @@ char *beg,*end;
 		if ( (end = strchr(beg,'=')) ) {
 			char *dst;
 
+			/* Skip options! */
+			if ('-' == *beg)
+				continue;
+
 			/* now unquote the value */
 			if ('\'' == *++end) {
 				/* end points to the 1st char after '=' which is a '\'' */
