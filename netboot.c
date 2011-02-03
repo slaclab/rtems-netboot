@@ -127,6 +127,14 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 
 #define CONFIGURE_USE_IMFS_AS_BASE_FILESYSTEM
 
+#if ISMINVERSION(4,9,99)
+#define CONFIGURE_FILESYSTEM_IMFS
+#define CONFIGURE_FILESYSTEM_TFTPFS
+#ifdef NFS_SUPPORT
+#define CONFIGURE_FILESYSTEM_NFS
+#endif
+#endif
+
 #if defined(SPC_REBOOT) && ISMINVERSION(4,9,1)
 #include <bsp/bootcard.h>
 #define rtemsReboot bsp_reset
