@@ -384,7 +384,7 @@ static int isNfsPath(char **srvname, char *opath, int *perrfd, char **thepathp, 
 
 int  fd    = -1, l;
 char *fn   = 0, *path = 0;
-char *col1 = 0, *col2 = 0, *slas = 0, *at = 0, *srv=path, *ugid=0;
+char *col1 = 0, *col2 = 0, *at = 0, *srv=path, *ugid=0;
 char *srvpart  = 0;
 char *rpath = 0;
 char *mnt   = 0;
@@ -411,7 +411,6 @@ int  allocMntstring;
 
 	col1=strchr(path,':');
 	col2=strchr(col1+1,':');
-	slas=strchr(path,'/');
 
 	if ( (at = strchr(path,'@')) && at < col1 ) {
 		srv = at + 1;
