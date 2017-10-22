@@ -1,6 +1,5 @@
 #ifndef RTEMS_MINIMAL_VERSION_H
 #define RTEMS_MINIMAL_VERSION_H
-/* $Id$ */
 
 /* Macro to detect RTEMS version */
 #include <rtems.h>
