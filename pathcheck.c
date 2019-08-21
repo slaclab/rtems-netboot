@@ -420,6 +420,7 @@ int  allocMntstring;
 		srv = path;
 	}
 
+#if NFS_SUPPORT == 1
 	if ( !nfsInited ) {
 		if ( rpcUdpInit() ) {
 			fprintf(stderr,"RPC-IO initialization failed - try RSH or TFTP\n");
@@ -428,6 +429,7 @@ int  allocMntstring;
 		nfsInit(0,0);
 		nfsInited = 1;
 	}
+#endif
 
 	/* clear all separators */
 	if ( at )
