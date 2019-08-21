@@ -102,6 +102,8 @@ LDFLAGS += -Wl,-Map,$(ARCH)/${PGM}.linkmap ${LDFLAGS_${PGM}} -Wl,-u,inet_pton -W
 #
 
 CLEAN_ADDITIONS += term.c
+CLEAN_ADDITIONS += pairxtract.c
+CLEAN_ADDITIONS += pathcheck.c
 CLOBBER_ADDITIONS +=
 
 all:	${ARCH} $(SRCS) $(APPS) $(LIBRS)
@@ -157,7 +159,7 @@ $(ARCH)/netboot.o: nvram.c pathcheck.c
 $(ARCH)/coredump.o: nvram.c pathcheck.c
 $(ARCH)/fixup_net_config.o: nvram.c
 
-term.c: utils/term.c
+term.c pairxtract.c pathcheck.c:%:utils/%
 	ln -s $^ $@
 
 coredump.c: netboot.c

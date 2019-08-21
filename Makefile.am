@@ -5,9 +5,9 @@ include $(top_srcdir)/rtems-pre.am
 
 EXEEXT=$(APPEXEEXT)
 
-libnetboot_a_SOURCES    = fixup_net_config.c pairxtract.c
+libnetboot_a_SOURCES    = fixup_net_config.c utils/pairxtract.c
 
-EXTRA_DIST              = nvram.c zlib.c zlib.h pathcheck.c
+EXTRA_DIST              = nvram.c zlib.c zlib.h utils/pathcheck.c
 
 include_HEADERS         = libnetboot.h
 
@@ -29,7 +29,7 @@ execimgdir              = $(exec_prefix)/img
 
 netboot_SOURCES         = netboot.c ctrlx.c utils/term.c
 
-netboot_SOURCES        += ctrlx.h minversion.h
+netboot_SOURCES        += ctrlx.h utils/minversion.h
 
 EXTRA_DIST             += gunzip.c gunzip.lds
 
@@ -63,7 +63,7 @@ include $(top_srcdir)/rtems.am
 
 fixup_net_config.o: nvram.c
 
-netboot.o: nvram.c pathcheck.c
+netboot.o: nvram.c utils/pathcheck.c
 
 if NETBOOT_COMPRESSED
 %.tmpbin: %$(EXEEXT)
