@@ -53,7 +53,7 @@
 
 #include <bsp.h>
 
-#ifndef COREDUMP_APP
+#if ! defined(COREDUMP_APP) && (NFS_SUPPORT == 1)
 static int nfsInited     = 0;
 #endif
 
@@ -63,11 +63,10 @@ static int tftpInited    = 0;
 
 #ifndef COREDUMP_APP
 #define RSH_SUPPORT
-#define NFS_SUPPORT
 #endif
 #define TFTP_SUPPORT
 
-#include "pathcheck.c"
+#include "utils/pathcheck.c"
 
 #ifndef BARE_BOOTP_LOADER
 
@@ -486,7 +485,7 @@ register char *end=start+size;
 static char *
 doLoad(long fd, long errfd)
 {
-rtems_interrupt_level l;
+rtems_interrupt_level l __attribute__((unused));
 char *buf,*mem=0;
 long ntot;
 register unsigned long algn;
