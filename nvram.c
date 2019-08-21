@@ -730,9 +730,8 @@ int  result=0;
 		/* Do they want something special ? */
 		result=prompt(c,what,*pval,&nval);
 		if (nval) {
-			unsigned long	tst;
 			char			*endp;
-			tst=strtoul(nval,&endp,0);
+			(void)strtoul(nval,&endp,0);
 			if (*endp) {
 				fprintf(c->err,"Not a valid number - try again\n");
 				free(nval); nval=0;
@@ -1243,7 +1242,9 @@ unsigned char   *start;
 unsigned short	sum;
 Parm			p;
 int				i;
+#ifdef EEPROM_NAME
 unsigned        sz;
+#endif
 
 #ifdef NVRAM_START
 		start  = NVRAM_START;
@@ -1271,7 +1272,9 @@ unsigned        sz;
 		}
 		/* tag the end - there is space for the terminating '\0', it's safe */
 		*nvchpt=0;
+#ifdef EEPROM_NAME
 		sz = (nvchpt - start) + 1;
+#endif
 
 		nvchpt = NVRAM_STR_START(start);
 
