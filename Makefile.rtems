@@ -157,7 +157,7 @@ $(ARCH)/netboot.o: nvram.c pathcheck.c
 $(ARCH)/coredump.o: nvram.c pathcheck.c
 $(ARCH)/fixup_net_config.o: nvram.c
 
-term.c: termsize/term.c
+term.c: utils/term.c
 	ln -s $^ $@
 
 coredump.c: netboot.c

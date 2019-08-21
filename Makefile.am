@@ -27,7 +27,7 @@ EXTRA_DIST             += reflash.st smonscript.st
 
 execimgdir              = $(exec_prefix)/img
 
-netboot_SOURCES         = netboot.c ctrlx.c termsize/term.c
+netboot_SOURCES         = netboot.c ctrlx.c utils/term.c
 
 netboot_SOURCES        += ctrlx.h minversion.h
 
