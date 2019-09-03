@@ -990,7 +990,7 @@ rtems_task Init(
 #else
 	fprintf(stderr,"\n\nRTEMS coredump helper by Till Straumann <strauman@slac.stanford.edu>\n");
 #endif
-	fprintf(stderr,"GIT tag %s\n", PACKAGE_VERSION);
+	fprintf(stderr,"GIT revision: %s\n", PACKAGE_VERSION);
 
 #ifndef NVRAM_NONE
 	if (!readNVRAM(&ctx)) {
