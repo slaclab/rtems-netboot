@@ -982,7 +982,7 @@ rtems_task Init(
 	fprintf(stderr,"\n\nRTEMS coredump helper by Till Straumann <strauman@slac.stanford.edu>\n");
 #endif
 	fprintf(stderr,"$Id$\n");
-	fprintf(stderr,"CVS tag $Name$\n");
+	fprintf(stderr,"CVS tag " PACKAGE_VERSION "\n");
 
 #ifndef NVRAM_NONE
 	if (!readNVRAM(&ctx)) {
