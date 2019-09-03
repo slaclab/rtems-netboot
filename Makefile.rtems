@@ -64,6 +64,7 @@ DEFINES_coredump += -DCOREDUMP_APP
 
 DEFINES += -DWINS_LINE_DISC ${DEFINES_${PGM}} ${DEFINES_${LIB}}
 DEFINES += $(USR_DEFINES)
+DEFINES += -DPACKAGE_VERSION=$(shell git describe --always --dirty)
 # -DUSE_SHELL
 CPPFLAGS += -I. -I$(exec_prefix)/include
 CFLAGS += $(DEBUG)
