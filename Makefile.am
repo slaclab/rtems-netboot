@@ -49,7 +49,7 @@ netboot_DEPENDENCIES    = $(LDADD_$(rtems_bsp))
 
 CLEANFILES              = $(execimg_SCRIPTS) linkmap
 
-netboot_LDADD          += -ltecla_r $(NFSLIB)
+netboot_LDADD          += -ltecla_r -lt9p $(NFSLIB)
 #AM_LDFLAGS             += -L../cexp/libtecla -L../rtemsNfs/src -L../rtemsNfs/proto
 
 AM_CPPFLAGS            += -DWINS_LINE_DISC 
