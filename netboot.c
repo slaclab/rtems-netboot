@@ -834,12 +834,12 @@ int  i;
 			} while ( -10 == (fd = isRshPath(&boot_srvname, boot_filename, &errfd, 0)) );
 		} else {
 			releaseMount( 0 );
-		 	if ( (fd = isNfsPath(&boot_srvname, boot_filename, &errfd, 0, 0)) < -10 ) {
+		 	if ( (fd = isRemotePath(&boot_srvname, boot_filename, &errfd, 0, 0, pathType(boot_filename))) < -10 ) {
 				if ( -2 == fd ) {
 					/* not strictly necessary here - just to remind us that
 					 * the file couldn't be opened but the mount was OK
 					 */
-					fprintf(stderr,"NFS mount OK but file couldn't be opened\n");
+					fprintf(stderr,"Remote (NFS or 9P) mount OK but file couldn't be opened\n");
 					releaseMount( 0 );
 				}
 				fd = isTftpPath(&boot_srvname, boot_filename, &errfd, 0);
