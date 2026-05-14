@@ -142,7 +142,10 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 #ifndef COREDUMP_APP
 
 /* NETBOOT configuration */
-#define CONFIGURE_MAXIMUM_SEMAPHORES   	20 
+#define CONFIGURE_MAXIMUM_SEMAPHORES   	20
+#define CONFIGURE_MAXIMUM_POSIX_MUTEXES 16
+#define CONFIGURE_MAXIMUM_POSIX_CONDITION_VARIABLES 16 /* Depends on maxfids=16 in pathcheck.c */
+#define CONFIGURE_MAXIMUM_POSIX_THREADS 4
 #define CONFIGURE_MAXIMUM_TASKS         10
 #if !ISMINVERSION(4,9,0)
 #define CONFIGURE_MAXIMUM_DEVICES       4
@@ -962,6 +965,8 @@ rtems_task Init(
   unsigned char	ch;
   int	secs;
 
+	t9p_rtems_register();
+
 #ifndef USE_READLINE
 	ansiTiocGwinszInstall(7);
 #endif
@@ -990,7 +995,8 @@ rtems_task Init(
 #else
 	fprintf(stderr,"\n\nRTEMS coredump helper by Till Straumann <strauman@slac.stanford.edu>\n");
 #endif
-	fprintf(stderr,"GIT revision: %s\n", PACKAGE_VERSION);
+	fprintf(stderr, "Build date: %s %s\n", __DATE__, __TIME__);
+	fprintf(stderr, "GIT revision: %s\n", PACKAGE_VERSION);
 
 #ifndef NVRAM_NONE
 	if (!readNVRAM(&ctx)) {
