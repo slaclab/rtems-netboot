@@ -240,18 +240,40 @@ static int getIpAddr(GET_PROC_ARG_PROTO);
 static int getUseBootp(GET_PROC_ARG_PROTO);
 static int getNum(GET_PROC_ARG_PROTO);
 
+/* If you're going to increase this, you must also add boot_parmsN, boot_filenameN,
+ * FILENAMEN_IDX (see below) and adjust the other _IDX macros. */
+#define NUM_BOOT_FILES 3
+
 #ifdef __INSIDE_NETBOOT__
 /* all kernel commandline parameters */
 static char *cmdline=0;
 #endif
 /* editable part of commandline */
 static char *boot_parms=0;
+static char *boot_parms2=0;
+static char *boot_parms3=0;
 /* server IP address */
 static char *boot_srvname=0;
 /* image file name */
 static char *boot_filename=0;
+/* alternate image */
+static char *boot_filename2=0;
+/* alternate image #2 */
+static char *boot_filename3=0;
 /* interface + media */
 static char *boot_my_if=0;
+
+static char **boot_files[NUM_BOOT_FILES] = {
+	&boot_filename,
+	&boot_filename2,
+	&boot_filename3,
+};
+
+static char **boot_parms_list[NUM_BOOT_FILES] = {
+	&boot_parms,
+	&boot_parms2,
+	&boot_parms3,
+};
 
 #ifndef __INSIDE_NETBOOT__
 /* my IP address */
@@ -267,21 +289,25 @@ static char *auto_delay_secs=DELAY_DEF;
 static char *CPU_TAU_offset = 0;
 #endif
 
-#define FILENAME_IDX 0
-#define CMD_LINE_IDX 1
-#define SERVERIP_IDX 2
-#define MYIFNAME_IDX 4
-#define MYIPADDR_IDX 5
-#define BOOTP_EN_IDX 16
-#define DELYSECS_IDX 17
+#define FILENAME_IDX  0
+#define FILENAME2_IDX 1
+#define FILENAME3_IDX 2
+#define CMD_LINE_IDX  3
+#define CMD_LINE2_IDX 4
+#define CMD_LINE3_IDX 5
+#define SERVERIP_IDX  6
+#define MYIFNAME_IDX  8
+#define MYIPADDR_IDX  9
+#define BOOTP_EN_IDX 20
+#define DELYSECS_IDX 21
 #ifdef __PPC__
-#define CPU_TAU_IDX  18
+#define CPU_TAU_IDX  22
 #endif
 
 #ifdef CPU_TAU_IDX
-#define NUM_PARMS    19
+#define NUM_PARMS    23
 #else
-#define NUM_PARMS    18
+#define NUM_PARMS    22
 #endif
 
 /* The code assembling the kernel boot parameter line depends on the order
@@ -289,7 +315,7 @@ static char *CPU_TAU_offset = 0;
  * The prompts should be chosen in a way so the first ~14 chars make sense...
  */
 static ParmRec parmList[NUM_PARMS+1]={
-	{ "BP_FILE=",
+	{ "BP_FILE=", /* 0 */
 		   	&boot_filename,
 #ifndef COREDUMP_APP
 			"Boot file (e.g., '/TFTP/1.2.3.4/path', '~rshuser/path' or 'nfshost:/dir:path'):\n"
@@ -299,23 +325,55 @@ static ParmRec parmList[NUM_PARMS+1]={
 			" >",
 			getString,		FLAG_MAND | FLAG_BOOTP | FLAG_BOOTP_MAN,
 	},
-	{ "BP_PARM=",
+	{ "BP_FILE2=", /* 1 */
+		   	&boot_filename2,
+#ifndef COREDUMP_APP
+			"Boot file [Option 2]:\n"
+#else
+			"Core file name on TFTP server (e.g. '/TFTP/11.2.3.4/feil'):\n"
+#endif
+			" >",
+			getString,		FLAG_BOOTP | FLAG_BOOTP_MAN,
+	},
+	{ "BP_FILE3=", /* 2 */
+		   	&boot_filename3,
+#ifndef COREDUMP_APP
+			"Boot file [Option 3]:\n"
+#else
+			"Core file name on TFTP server (e.g. '/TFTP/11.2.3.4/feil'):\n"
+#endif
+			" >",
+			getString,		FLAG_BOOTP | FLAG_BOOTP_MAN,
+	},
+	{ "BP_PARM=", /* 3 */
 		   	&boot_parms,
 			"Command line parameters:\n"
 			" >",
 			getCmdline,		0 | FLAG_BOOTP | FLAG_BOOTP_MAN,
 	},
-	{ "BP_SRVR=",
+	{ "BP_PARM2=", /* 4 */
+		   	&boot_parms2,
+			"Command line parameters (Boot Option 2):\n"
+			" >",
+			getCmdline,		0 | FLAG_BOOTP | FLAG_BOOTP_MAN,
+	},
+	{ "BP_PARM3=", /* 5 */
+		   	&boot_parms3,
+			"Command line parameters (Boot Option 3):\n"
+			" >",
+			getCmdline,		0 | FLAG_BOOTP | FLAG_BOOTP_MAN,
+	},
+	{ "BP_SRVR=", /* 6 */
 			&boot_srvname,
 			"Server IP:    >",
 			getIpAddr,		FLAG_MAND | FLAG_BOOTP | FLAG_BOOTP_MAN,
 	},
-	{ "BP_GTWY=",
+	{ "BP_GTWY=", /* 7 */
 			&rtems_bsdnet_config.gateway,
 			"Gateway IP:   >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP, 
 	},
-	{ "BP_MYIF=",
+	{ "BP_MYIF=", /* 8 */
 			&boot_my_if,
 #ifdef BSP_HAS_MULTIPLE_NETIFS
 			"My network IF + media (e.g., '100baseTX-full' ['?' for help])\n"
@@ -325,7 +383,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			"              >",
 			getMedia,		0,
 	},
-	{ "BP_MYIP=",
+	{ "BP_MYIP=", /* 9 */
 #ifdef __INSIDE_NETBOOT__
 			&eth_ifcfg.ip_address,
 #else
@@ -334,7 +392,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			"My IP:        >",
 			getIpAddr,		FLAG_MAND| FLAG_CLRBP | FLAG_BOOTP,
 	},
-	{ "BP_MYMK=",
+	{ "BP_MYMK=", /* 10 */
 #ifdef __INSIDE_NETBOOT__
 			&eth_ifcfg.ip_netmask,
 #else
@@ -343,58 +401,58 @@ static ParmRec parmList[NUM_PARMS+1]={
 			"My netmask:   >",
 			getIpAddr,		FLAG_MAND | FLAG_CLRBP | FLAG_BOOTP,
 	},
-	{ "BP_MYNM=",
+	{ "BP_MYNM=", /* 11 */
 			&rtems_bsdnet_config.hostname,
 			"My name:      >",
 			getString,		FLAG_CLRBP | FLAG_BOOTP,
 	},
-	{ "BP_MYDN=",
+	{ "BP_MYDN=", /* 12 */
 			&rtems_bsdnet_config.domainname,
 			"My domain:    >",
 			getString,		FLAG_CLRBP | FLAG_BOOTP,
 	},
-	{ "BP_LOGH=",
+	{ "BP_LOGH=", /* 13 */
 			&rtems_bsdnet_config.log_host,
 			"Loghost IP:   >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
-	{ "BP_DNS1=",
+	{ "BP_DNS1=", /* 14 */
 			&rtems_bsdnet_config.name_server[0],
 			"DNS server 1: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
-	{ "BP_DNS2=",
+	{ "BP_DNS2=", /* 15 */
 			&rtems_bsdnet_config.name_server[1],
 			"DNS server 2: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
-	{ "BP_DNS3=",
+	{ "BP_DNS3=", /* 16 */
 			&rtems_bsdnet_config.name_server[2],
 			"DNS server 3: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
-	{ "BP_NTP1=",
+	{ "BP_NTP1=", /* 17 */
 			&rtems_bsdnet_config.ntp_server[0],
 			"NTP server 1: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
-	{ "BP_NTP2=",
+	{ "BP_NTP2=", /* 18 */
 			&rtems_bsdnet_config.ntp_server[1],
 			"NTP server 2: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
-	{ "BP_NTP3=",
+	{ "BP_NTP3=", /* 19 */
 			&rtems_bsdnet_config.ntp_server[2],
 			"NTP server 3: >",
 			getIpAddr,		FLAG_CLRBP | FLAG_BOOTP,
 	},
-	{ "BP_ENBL=",
+	{ "BP_ENBL=", /* 20 */
 			&boot_use_bootp,
 			"Use BOOTP: Yes, No or Partial (-> file and\n"
             "          command line from NVRAM) [Y/N/P]>",
 			getUseBootp,	FLAG_DUP,
 	},
-	{ "BP_DELY=",
+	{ "BP_DELY=", /* 21 */
 			&auto_delay_secs,
 			"Autoboot Delay: ["
 					DELAY_MIN "..."
@@ -403,7 +461,7 @@ static ParmRec parmList[NUM_PARMS+1]={
 			FLAG_NOUSE | FLAG_DUP,
 	},
 #ifdef __PPC__
-	{ "BP_TAUO=",
+	{ "BP_TAUO=", /* 22 */
 			&CPU_TAU_offset,
 			"CPU Temp. Calibration - (LEAVE IF UNSURE) >",
 			getNum,

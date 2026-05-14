@@ -700,6 +700,9 @@ help(void)
 	printf("Press 'p' for continuing the netboot; enforce using BOOTP\n"
            "          but use file and cmdline from NVRAM\n");
 	printf("Press 'm' for continuing the netboot; enforce using NVRAM config\n");
+	printf("Press '1' for continuing the netboot; enforce using NVRAM config with boot option 1. Same as 'm'\n");
+	printf("Press '2' for continuing the netboot; enforce using NVRAM config with boot option 2\n");
+	printf("Press '3' for continuing the netboot; enforce using NVRAM config with boot option 3\n");
 	printf("Press 'R' to reboot now "
 #ifdef SPC_REBOOT
 	       "(you can always hit <Ctrl>-%c to reboot)",SPC2CHR(SPC_REBOOT)
@@ -964,6 +967,7 @@ rtems_task Init(
   NetConfigCtxtRec	ctx;
   unsigned char	ch;
   int	secs;
+  int   bootopt = 0;
 
 	t9p_rtems_register();
 
@@ -1100,11 +1104,24 @@ rtems_task Init(
 
 								case '@':	manual=0;					break;
 								case 'd':	manual=0; enforceBootp=1;	break;
-								case 'm':	manual=0; enforceBootp=-1;	break;
+								case 'm':	manual=0; enforceBootp=-1; bootopt = 0; break;
+								case '1':	manual=0; enforceBootp=-1; bootopt = 0; break;
+								case '2':	manual=0; enforceBootp=-1; bootopt = 1; break;
+								case '3':	manual=0; enforceBootp=-1; bootopt = 2; break;
 
 								default: 	manual=-1;
 										break;
 							}
+
+							/* safety check, incase someone forgot to update something */
+							assert(bootopt < NUM_BOOT_FILES);
+
+							/* validate boot options */
+							if (bootopt > 0 && (!*boot_files[bootopt] || !**boot_files[bootopt])) {
+								fprintf(stderr, "Boot option %d is not defined. Check your NVRAM configuration.\n", bootopt+1);
+								manual = -1;
+							}
+
 							if (-1==manual)
 								help();
 						} while (-1==manual && 1==read(0,&ch,1));
@@ -1199,6 +1216,20 @@ rtems_task Init(
 		if (!inet_ntop(AF_INET,&SADR,boot_srvname,strlen(boot_srvname))) {
 			free(boot_srvname);
 			boot_srvname=0;
+		}
+	}
+
+	/* boot from NVRAM with a specific option */
+	if (enforceBootp < 0 && bootopt > 0) {
+		/* assign filename based on boot option */
+		free(boot_filename);
+		boot_filename = strdup(*boot_files[bootopt]);
+
+		/* assign boot parms based on boot option. If this boot option has
+		 * no args, just use the default. */
+		if (*boot_parms_list[bootopt] && **boot_parms_list[bootopt]) {
+			free(boot_parms);
+			boot_parms = strdup(*boot_parms_list[bootopt]);
 		}
 	}
 
