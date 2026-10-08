@@ -56,6 +56,8 @@ AM_CPPFLAGS            += -DWINS_LINE_DISC
 #AM_CPPFLAGS            += -DUSE_SHELL
 AM_CPPFLAGS            += $(AM_CPPFLAGS_$(rtems_bsp))
 
+#AM_CFLAGS              += -std=gnu99
+
 AM_CPPFLAGS_uC5282      = -DNVRAM_READONLY -DNVRAM_UCDIMM '-DBSP_mem_size=(1024*1024*8)'
 LDADD_uC5282            = uC5282_mover.$(OBJEXT)
 
