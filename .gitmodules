@@ -1,3 +1,6 @@
 [submodule "utils"]
 	path = utils
 	url = ../rtems-gesys-utils
+[submodule "tftpc"]
+	path = tftpc
+	url = https://github.com/JJL772/ttftpc.git
