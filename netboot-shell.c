@@ -27,6 +27,7 @@ static int netboot_sh_tftpget(int argc, char** argv);
 static int netboot_sh_netstats(int argc, char** argv);
 static int netboot_sh_ipstats(int argc, char** argv);
 static int netboot_sh_routes(int argc, char** argv);
+static int netboot_sh_init_network(int argc, char** argv);
 
 static void
 register_netboot_cmds()
@@ -35,6 +36,7 @@ register_netboot_cmds()
     rtems_shell_add_cmd("ipstats", "net", "", netboot_sh_ipstats);
     rtems_shell_add_cmd("netstats", "net", "", netboot_sh_netstats);
     rtems_shell_add_cmd("routes", "net", "", netboot_sh_routes);
+    rtems_shell_add_cmd("netinit", "net", "", netboot_sh_init_network);
 }
 
 static int
@@ -91,5 +93,16 @@ static int
 netboot_sh_routes(int argc, char** argv)
 {
     rtems_bsdnet_show_inet_routes();
+    return 0;
+}
+
+
+static
+int netboot_sh_init_network(int argc, char** argv)
+{
+    if (rtems_bsdnet_initialize_network() != 0) {
+        printf("Error while initializing network.\n");
+        return -1;
+    }
     return 0;
 }

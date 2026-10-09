@@ -722,6 +722,7 @@ help(void)
 	printf("Press '1' for continuing the netboot; enforce using NVRAM config with boot option 1. Same as 'm'\n");
 	printf("Press '2' for continuing the netboot; enforce using NVRAM config with boot option 2\n");
 	printf("Press '3' for continuing the netboot; enforce using NVRAM config with boot option 3\n");
+	printf("Press 'x' to drop into a boot shell\n");
 	printf("Press 'R' to reboot now "
 #ifdef SPC_REBOOT
 	       "(you can always hit <Ctrl>-%c to reboot)",SPC2CHR(SPC_REBOOT)
@@ -1128,7 +1129,7 @@ rtems_task Init(
 								case '1':	manual=0; enforceBootp=-1; bootopt = 0; break;
 								case '2':	manual=0; enforceBootp=-1; bootopt = 1; break;
 								case '3':	manual=0; enforceBootp=-1; bootopt = 2; break;
-								case 'x':	manual=0; shell=1; break;
+								case 'x':	manual=0; enforceBootp=-1; shell=1; break;
 
 								default: 	manual=-1;
 										break;
