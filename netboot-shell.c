@@ -20,14 +20,19 @@
 #include "tftpc/ttftp.h"
 
 #include <rtems.h>
+#include <bsp.h>
 #include <rtems/shell.h>
 #include <rtems/rtems_bsdnet.h>
+
+extern int do_pxeboot(const char* nextserver, char** kernel, char** append);
 
 static int netboot_sh_tftpget(int argc, char** argv);
 static int netboot_sh_netstats(int argc, char** argv);
 static int netboot_sh_ipstats(int argc, char** argv);
 static int netboot_sh_routes(int argc, char** argv);
 static int netboot_sh_init_network(int argc, char** argv);
+static int netboot_sh_pxeboot(int argc, char** argv);
+static int netboot_sh_reboot(int argc, char** argv);
 
 static void
 register_netboot_cmds()
@@ -37,6 +42,50 @@ register_netboot_cmds()
     rtems_shell_add_cmd("netstats", "net", "", netboot_sh_netstats);
     rtems_shell_add_cmd("routes", "net", "", netboot_sh_routes);
     rtems_shell_add_cmd("netinit", "net", "", netboot_sh_init_network);
+    rtems_shell_add_cmd("reboot", "misc", "", netboot_sh_reboot);
+    rtems_shell_add_cmd("pxe", "net", "", netboot_sh_pxeboot);
+}
+
+static int
+netboot_sh_pxeboot(int argc, char** argv)
+{
+    if (argc < 2) {
+        printf("USAGE: pxe [ACTION] [ARGS...]\n");
+        printf("  Supported actions: get\n");
+        return -1;
+    }
+
+    // Just do a 'get', but don't actually boot yet.
+    if (!strcmp(argv[1], "get")) {
+        const char* server = strdup(inet_ntoa(rtems_bsdnet_bootp_server_address));
+        if (argc > 2) {
+            server = strdup(argv[2]);
+        }
+        printf("bootp_server: %s\n", server);
+
+        char* kernel = NULL, *append = NULL;
+        if (do_pxeboot(server, &kernel, &append) != 0) {
+            printf("PXE failed\n");
+            return -1;
+        }
+
+        setenv("KERNEL", kernel, 1);
+        setenv("APPEND", append, 1);
+        free(kernel);
+        free(append);
+    } else {
+        printf("Unsupported action '%s'\n", argv[1]);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int
+netboot_sh_reboot(int argc, char** argv)
+{
+    bsp_reset();
+    return 0;
 }
 
 static int
@@ -95,7 +144,6 @@ netboot_sh_routes(int argc, char** argv)
     rtems_bsdnet_show_inet_routes();
     return 0;
 }
-
 
 static
 int netboot_sh_init_network(int argc, char** argv)

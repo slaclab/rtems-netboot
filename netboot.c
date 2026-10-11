@@ -1129,7 +1129,7 @@ rtems_task Init(
 								case '1':	manual=0; enforceBootp=-1; bootopt = 0; break;
 								case '2':	manual=0; enforceBootp=-1; bootopt = 1; break;
 								case '3':	manual=0; enforceBootp=-1; bootopt = 2; break;
-								case 'x':	manual=0; enforceBootp=-1; shell=1; break;
+								case 'x':	manual=0; shell=1; break;
 
 								default: 	manual=-1;
 										break;
@@ -1248,12 +1248,10 @@ rtems_task Init(
 			if (BOFN && !strncmp(BOFN, "pxelinux", sizeof("pxelinux")-1)) {
 				fprintf(stderr, "Detected pxelinux; attempting to fetch a PXE config over TFTP...\n");
 				char *new_bfn = NULL, *new_parms = NULL;
-				if (do_pxeboot(&new_bfn, &new_parms) != 0) {
+				if (do_pxeboot(rtems_bsdnet_bootp_server_name, &new_bfn, &new_parms) != 0) {
 					fprintf(stderr, "do_pxeboot: error downloading and/or parsing PXE config\n");
 				} else {
-					fprintf(stderr, "do_pxeboot: Got the following options:\n");
-					fprintf(stderr, "  filename=%s\n", new_bfn);
-					fprintf(stderr, "  parms=%s\n", new_parms);
+					fprintf(stderr, "do_pxeboot: Booting with filename='%s' append='%s'\n", new_bfn, new_parms);
 					free(boot_filename);
 					free(boot_parms);
 					boot_filename = new_bfn;

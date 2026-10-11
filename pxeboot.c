@@ -1,9 +1,10 @@
 //-----------------------------------------------------------------------------------------
 // Copyright (C) 2026, SLAC National Accelerator Laboratory
 //-----------------------------------------------------------------------------------------
-// Purpose: Defines routines used to download and parse PXE configuration files as an
-//  alternative method of booting. Normally DHCP would be used to provide these parameters,
-//  however not all tools support uarg (option 129) and easy overrides of 'filename'.
+// Purpose: Provides limited support for PXE boot configurations.
+//-----------------------------------------------------------------------------------------
+// Author: J. Lorelli
+// Date: Oct 10, 2026
 //-----------------------------------------------------------------------------------------
 // This file is part of 'netboot'. It is subject to the license terms in the
 // LICENSE file found in the top-level directory of this distribution.
@@ -16,6 +17,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <termios.h>
 
 #include "tftpc/ttftp.h"
 
@@ -33,6 +35,14 @@ struct in_addr rtems_bsdnet_bootp_server_address; /* testing */
 extern struct in_addr rtems_bsdnet_bootp_server_address;
 #endif
 
+typedef struct pxeconfig {
+    int prompt;
+    int timeout;
+    char* ontimeout;
+
+    struct pxeimage* images;
+} pxeconfig_t;
+
 /** 
  * Defines an entry in the PXE file
  */
@@ -40,15 +50,96 @@ typedef struct pxeimage {
     char* label;
     char* kernel;
     char* append;
+    char* menu_label;
 
     struct pxeimage* next;
 } pxeimage_t;
 
-static pxeimage_t* parse_pxeboot(const void* data, size_t size);
-static void pxeboot_free(pxeimage_t* head);
+static pxeconfig_t* parse_pxeboot(const void* data, size_t size);
+static void pxeboot_free(pxeconfig_t* config);
 
 /* Looks for the `LABEL rtems` entry in the file. */
 #define IMAGE_LABEL "rtems"
+
+static pxeimage_t*
+pxeboot__get_default_boot(pxeconfig_t* config)
+{
+    /* Search for the 'ontimeout' image if provided. Otherwise default to the
+     * generic 'rtems' label */
+    const char* toSearch = config->ontimeout ? config->ontimeout : IMAGE_LABEL;
+
+    for (pxeimage_t* img = config->images; img; img = img->next) {
+        if (!strcmp(img->label, toSearch))
+            return img;
+    }
+    return NULL;
+}
+
+/**
+ * @brief Shows a boot menu and returns the selected image.
+ * If the boot menu is not enabled, this will just return the default image.
+ * @returns Image or NULL if there are no images.
+ */
+static pxeimage_t*
+pxeboot_show_boot_menu(pxeconfig_t* config)
+{
+    if (!config->timeout) {
+        return pxeboot__get_default_boot(config);
+    }
+
+    /* Config tweaks so our fgets behaves well */
+    struct termios saved, newios;
+    tcgetattr(STDIN_FILENO, &saved);
+    newios = saved;
+    newios.c_lflag |= ECHO;
+    newios.c_lflag &= ~ICANON;
+    newios.c_iflag |= IXOFF | IGNCR;
+    newios.c_iflag &= ~(IXANY|IXON);
+    newios.c_cc[VTIME] = config->timeout * 10;
+    newios.c_cc[VMIN] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &newios);
+
+    fprintf(stderr, "--------------------------------\n");
+    fprintf(stderr, "-         PXE Boot Menu        -\n");
+    fprintf(stderr, "--------------------------------\n");
+    fprintf(stderr, "Available Boot Options:\n");
+
+    int n = 0;
+    for (pxeimage_t* img = config->images; img; img = img->next) {
+        fprintf(stderr, "  %d: '%s'\n", n++, img->menu_label ? img->menu_label : img->label);
+    }
+
+enter_boot_opt:
+    fprintf(stderr, "Enter boot option number (%d seconds): ", config->timeout);
+
+    char opt[128] = {0};
+    fgets(opt, sizeof(opt), stdin);
+
+    /* Entry timed out, boot the defautl */
+    if (!*opt) {
+        fprintf(stderr, "\nBooting default...\n");
+        tcsetattr(STDIN_FILENO, TCSANOW, &saved);
+        return pxeboot__get_default_boot(config);
+    }
+
+    int toBoot = atoi(opt);
+    if (toBoot >= n) {
+        fprintf(stderr, "\nNo such option '%d'\n", toBoot);
+        goto enter_boot_opt;
+    }
+
+    /* Restore old termios config */
+    tcsetattr(STDIN_FILENO, TCSANOW, &saved);
+
+    n = 0;
+    for (pxeimage_t* img = config->images; img; img = img->next, n++) {
+        if (n == toBoot) {
+            fprintf(stderr, "\nBooting option %d: '%s'\n", toBoot, img->label);
+            return img;
+        }
+    }
+    return NULL;
+}
 
 static int
 pxeboot_for_mac(const uint8_t* mac, char** kernel, char** append)
@@ -82,22 +173,16 @@ pxeboot_for_mac(const uint8_t* mac, char** kernel, char** append)
 
     tftpc_close(c);
 
-    pxeimage_t* imglist = parse_pxeboot(data, size);
+    pxeconfig_t* config = parse_pxeboot(data, size);
     free(data);
 
-    if (!imglist) {
+    if (!config) {
         printf("do_pxeboot: No PXE entries provided by server '%s'\n", server);
         return -1;
     }
 
-    /* Search for an entry in the PXE image list with the desired name */
-    pxeimage_t *rtemsImage = NULL, *img = NULL;
-    for (img = imglist; img; img = img->next) {
-        if (!strcmp(img->label, IMAGE_LABEL)) {
-            rtemsImage = img;
-            break;
-        }
-    }
+    /* Grab the desired image */
+    pxeimage_t *rtemsImage = pxeboot_show_boot_menu(config);
 
     if (!rtemsImage) {
         printf("do_pxeboot: Could not find image '%s' in the PXE config.\n",
@@ -109,38 +194,21 @@ pxeboot_for_mac(const uint8_t* mac, char** kernel, char** append)
     *append = rtemsImage->append;
     rtemsImage->kernel = rtemsImage->append = NULL;
 
-    pxeboot_free(imglist);
+    pxeboot_free(config);
 
     return 0;
 }
 
 /**
  * Downloads and parses a PXE config for the specified mac address.
+ * @param nextserver 'next-server' provided by DHCP (or some other server that provides TFTP for PXE)
  * @param kernel Kernel parameter from the config. Also known as 'filename'. free() after use.
  * @param append Append parameter from the config. Also known as 'cmdline' or 'uarg'. free() after use.
  * @returns 0 on success
  */
 int
-do_pxeboot(char** kernel, char** append)
+do_pxeboot(const char* nextserver, char** kernel, char** append)
 {
-    struct tftpc* pc = tftpc_open("134.79.217.70");
-    if (!pc) {
-        printf("Failed to lookup '134.79.217.70'\n");
-        abort();
-    }
-    
-    void* data = NULL;
-    size_t size = 0;
-    int r = tftpc_get(pc, "test.txt", &data, &size);
-    if (r < 0) {
-        printf("tftpc_get: %s (%d)\n", strerror(-r), r);
-        abort();
-    }
-    
-    printf("File contents:\n%*s\n", (int)size, (char*)data);
-    
-    tftpc_close(pc);
-    
     const uint8_t* hwaddr = rtems_bsdnet_config.ifconfig->hardware_address;
 
     printf(
@@ -156,9 +224,26 @@ do_pxeboot(char** kernel, char** append)
 }
 
 /**
+ * Check for option and skip to the option value, if it passes.
+ */
+static int
+pxeboot__check_and_skip_opt(const char* opt, const char** p)
+{
+    const size_t sl = strlen(opt);
+    if (strncmp(opt, *p, sl) || !isspace((*p)[sl]))
+        return 0;
+
+    /* skip until the option value now */
+    (*p) += sl;
+    while (isspace(**p) && **p)
+        (*p)++;
+    return 1;
+}
+
+/**
  * @brief Parse a PXE config into a linked list of boot options
  */
-static pxeimage_t*
+static pxeconfig_t*
 parse_pxeboot(const void* data, size_t size)
 {
     const char* const start = data;
@@ -169,7 +254,10 @@ parse_pxeboot(const void* data, size_t size)
     const int maxLine = 512;
     char line[maxLine+1];
 
-    pxeimage_t* head = NULL;
+    pxeconfig_t* config = calloc(1, sizeof(pxeconfig_t));
+    if (!config) {
+        return NULL;
+    }
 
     /* break into lines */
     for (n = 0; *s && s <= (start + size); s++) {
@@ -190,8 +278,8 @@ parse_pxeboot(const void* data, size_t size)
         /* new boot entry */
         if (!strncmp(p, "LABEL", 5)) {
             pxeimage_t* new = calloc(sizeof(pxeimage_t), 1);
-            new->next = head;
-            head = new;
+            new->next = config->images;
+            config->images = new;
 
             /* skip whitespace and strdup label */
             p += 5;
@@ -200,7 +288,16 @@ parse_pxeboot(const void* data, size_t size)
 
             continue;
         } else if (!isspace(*p)) {
-            continue; /* unknown root-level option... */
+            /* Root level options */
+            if (pxeboot__check_and_skip_opt("TIMEOUT", &p)) {
+                config->timeout = atoi(p);
+            } else if (pxeboot__check_and_skip_opt("PROMPT", &p)) {
+                config->prompt = atoi(p);
+            } else if (pxeboot__check_and_skip_opt("ONTIMEOUT", &p)) {
+                config->ontimeout = strdup(p);
+            } else {
+                continue; /* we don't handle most options; just ignore the unknown ones */
+            }
         } else {
             /* skip leading whitespace */
             while (isspace(*p) && *p) ++p;
@@ -208,11 +305,14 @@ parse_pxeboot(const void* data, size_t size)
             char** which = NULL;
             size_t toSkip = 0;
             if (!strncmp(p, "KERNEL", 6)) {
-                which = head ? &head->kernel : NULL;
+                which = config->images ? &config->images->kernel : NULL;
                 toSkip = 6;
             } else if (!strncmp(p, "APPEND", 6)) {
-                which = head ? &head->append : NULL;
+                which = config->images ? &config->images->append : NULL;
                 toSkip = 6;
+            } else if (!strncmp(p, "MENU LABEL", 10)) {
+                which = config->images ? &config->images->menu_label : NULL;
+                toSkip = 10;
             }
 
             /* unknown option, floating option (w/o LABEL), or random indent */
@@ -229,17 +329,21 @@ parse_pxeboot(const void* data, size_t size)
             *which = strdup(p);
         }
     }
-    return head;
+    return config;
 }
 
 /**
  * @brief Frees the pxeboot linked list
  */
 static void
-pxeboot_free(pxeimage_t* head)
+pxeboot_free(pxeconfig_t* config)
 {
+    /* Free global config options */
+    free(config->ontimeout);
+
+    /* Free all of the images */
     pxeimage_t* h;
-    for (h = head; h;) {
+    for (h = config->images; h;) {
         pxeimage_t* n = h->next;
         free(h->append);
         free(h->kernel);
