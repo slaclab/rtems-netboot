@@ -860,7 +860,7 @@ int  i;
 			} while ( -10 == (fd = isRshPath(&boot_srvname, boot_filename, &errfd, 0)) );
 		} else {
 			releaseMount( 0 );
-		 	if ( (fd = isRemotePath(&boot_srvname, boot_filename, &errfd, 0, 0, pathType(boot_filename))) < -10 ) {
+			if ( (fd = isRemotePath(&boot_srvname, boot_filename, &errfd, 0, 0, pathType(boot_filename))) < 0 ) {
 				if ( -2 == fd ) {
 					/* not strictly necessary here - just to remind us that
 					 * the file couldn't be opened but the mount was OK
