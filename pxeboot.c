@@ -95,8 +95,10 @@ pxeboot_show_boot_menu(pxeconfig_t* config)
     newios.c_lflag &= ~ICANON;
     newios.c_iflag |= IXOFF | IGNCR;
     newios.c_iflag &= ~(IXANY|IXON);
-    newios.c_cc[VTIME] = config->timeout * 10;
-    newios.c_cc[VMIN] = 0;
+    if (config->timeout > 0) {
+        newios.c_cc[VTIME] = config->timeout * 10;
+        newios.c_cc[VMIN] = 0;
+    }
     tcsetattr(STDIN_FILENO, TCSANOW, &newios);
 
     fprintf(stderr, "--------------------------------\n");
@@ -108,6 +110,7 @@ pxeboot_show_boot_menu(pxeconfig_t* config)
     for (pxeimage_t* img = config->images; img; img = img->next) {
         fprintf(stderr, "  %d: '%s'\n", n++, img->menu_label ? img->menu_label : img->label);
     }
+    fprintf(stderr, "  %d: Boot default\n", n++);
 
 enter_boot_opt:
     fprintf(stderr, "Enter boot option number (%d seconds): ", config->timeout);
@@ -122,7 +125,15 @@ enter_boot_opt:
         return pxeboot__get_default_boot(config);
     }
 
+    errno = 0;
     int toBoot = atoi(opt);
+
+    /* ensure the number is actually valid */
+    if (errno) {
+        fprintf(stderr, "\nInvalid option '%s'\n", opt);
+        goto enter_boot_opt;
+    }
+
     if (toBoot >= n) {
         fprintf(stderr, "\nNo such option '%d'\n", toBoot);
         goto enter_boot_opt;
@@ -138,7 +149,9 @@ enter_boot_opt:
             return img;
         }
     }
-    return NULL;
+
+    /* We've been asked to boot the default */
+    return pxeboot__get_default_boot(config);
 }
 
 static int
