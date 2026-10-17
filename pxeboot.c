@@ -24,6 +24,7 @@
 #ifdef __rtems__
 #include <rtems/rtems_bsdnet.h>
 #include <bsp.h>
+#include <net/ethernet.h>
 #endif
 
 extern char BSP_enetAddr0[7];
@@ -222,7 +223,28 @@ pxeboot_for_mac(const uint8_t* mac, char** kernel, char** append)
 int
 do_pxeboot(const char* nextserver, char** kernel, char** append)
 {
-    const uint8_t* hwaddr = rtems_bsdnet_config.ifconfig->hardware_address;
+    /* find corresponding ifconfig entry for the BSP's primary network interface */
+    struct rtems_bsdnet_ifconfig* ifconf;
+    for (ifconf = rtems_bsdnet_config.ifconfig; ifconf; ifconf = ifconf->next) {
+        if (ifconf->name && strcmp(ifconf->name, RTEMS_BSP_NETWORK_DRIVER_NAME))
+            break;
+    }
+
+    if (!ifconf) {
+        printf("do_pxeboot: Unable to determine MAC address for pimary network interface\n");
+        return -1;
+    }
+
+    const uint8_t* hwaddr = ifconf->hardware_address;
+
+    /* On the uC5282, sometimes (or always?) ifconfig doesn't have a valid MAC address,
+     * so we need to fetch it from the bootloader. */
+#ifdef __m68k__
+    uint8_t zero[ETHER_ADDR_LEN] = {0};
+    if (memcmp(hwaddr, zero, ETHER_ADDR_LEN) == 0) {
+        hwaddr = (const uint8_t*)bsp_gethwaddr(0);
+    }
+#endif
 
     printf(
         "do_pxeboot: Fetching for mac %02x:%02x:%02x:%02x:%02x:%02x\n",
