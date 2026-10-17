@@ -34,6 +34,8 @@ static int netboot_sh_init_network(int argc, char** argv);
 static int netboot_sh_pxeboot(int argc, char** argv);
 static int netboot_sh_reboot(int argc, char** argv);
 
+extern void bsp_reset();
+
 static void
 register_netboot_cmds()
 {

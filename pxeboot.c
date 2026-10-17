@@ -40,6 +40,7 @@ typedef struct pxeconfig {
     int prompt;
     int timeout;
     char* ontimeout;
+    char* def;
 
     struct pxeimage* images;
 } pxeconfig_t;
@@ -63,11 +64,16 @@ static void pxeboot_free(pxeconfig_t* config);
 #define IMAGE_LABEL "rtems"
 
 static pxeimage_t*
-pxeboot__get_default_boot(pxeconfig_t* config)
+pxeboot__get_default_boot(pxeconfig_t* config, int isTimeout)
 {
     /* Search for the 'ontimeout' image if provided. Otherwise default to the
      * generic 'rtems' label */
-    const char* toSearch = config->ontimeout ? config->ontimeout : IMAGE_LABEL;
+    const char* toSearch = NULL;
+    if (isTimeout) {
+        toSearch = config->ontimeout ? config->ontimeout : IMAGE_LABEL;
+    } else {
+        toSearch = config->def ? config->def : IMAGE_LABEL;
+    }
 
     for (pxeimage_t* img = config->images; img; img = img->next) {
         if (!strcmp(img->label, toSearch))
@@ -85,21 +91,16 @@ static pxeimage_t*
 pxeboot_show_boot_menu(pxeconfig_t* config)
 {
     if (!config->timeout) {
-        return pxeboot__get_default_boot(config);
+        return pxeboot__get_default_boot(config, 0);
     }
 
-    /* Config tweaks so our fgets behaves well */
+    /* termios config for immediate char input */
     struct termios saved, newios;
     tcgetattr(STDIN_FILENO, &saved);
     newios = saved;
-    newios.c_lflag |= ECHO;
-    newios.c_lflag &= ~ICANON;
-    newios.c_iflag |= IXOFF | IGNCR;
-    newios.c_iflag &= ~(IXANY|IXON);
-    if (config->timeout > 0) {
-        newios.c_cc[VTIME] = config->timeout * 10;
-        newios.c_cc[VMIN] = 0;
-    }
+    newios.c_lflag &= ~(ICANON|ECHO);
+    newios.c_cc[VMIN] = 0;
+    newios.c_cc[VTIME] = 10;
     tcsetattr(STDIN_FILENO, TCSANOW, &newios);
 
     fprintf(stderr, "--------------------------------\n");
@@ -111,10 +112,34 @@ pxeboot_show_boot_menu(pxeconfig_t* config)
     for (pxeimage_t* img = config->images; img; img = img->next) {
         fprintf(stderr, "  %d: '%s'\n", n++, img->menu_label ? img->menu_label : img->label);
     }
-    fprintf(stderr, "  %d: Boot default\n", n++);
+
+    const char* def = config->def ? config->def : config->ontimeout;
+    fprintf(stderr, "  %d: Boot default ('%s')\n\n", n++, def ? def : IMAGE_LABEL);
+
+    /* Give the user a chance to cancel autoboot */
+    if (config->timeout > 0) {
+        int to = config->timeout;
+        while (to > 0) {
+            fprintf(stderr, "\rPress any key to abort autoboot %d", to);
+            char b[32];
+            if (read(STDIN_FILENO, b, sizeof(b)) > 0)
+                break;
+            //sleep(1);
+            to--;
+        }
+
+        if (to == 0) {
+            /* be nice and restore our previous termios */
+            tcsetattr(STDIN_FILENO, TCSANOW, &saved);
+            fprintf(stderr, "Booting default...\n");
+            return pxeboot__get_default_boot(config, 1);
+        }
+    }
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &saved);
 
 enter_boot_opt:
-    fprintf(stderr, "Enter boot option number (%d seconds): ", config->timeout);
+    fprintf(stderr, "\nEnter boot option number: ");
 
     char opt[128] = {0};
     fgets(opt, sizeof(opt), stdin);
@@ -123,8 +148,20 @@ enter_boot_opt:
     if (!*opt) {
         fprintf(stderr, "\nBooting default...\n");
         tcsetattr(STDIN_FILENO, TCSANOW, &saved);
-        return pxeboot__get_default_boot(config);
+        return pxeboot__get_default_boot(config, 1);
     }
+
+    /* Check opt actually contains usable data */
+    int np = 0;
+    for (char* s = opt; *s; ++s, ++np) {
+        if (isspace(*s))
+            break;
+        if (!isdigit(*s))
+            goto enter_boot_opt;
+    }
+
+    if (!np)
+        goto enter_boot_opt;
 
     errno = 0;
     int toBoot = atoi(opt);
@@ -152,7 +189,7 @@ enter_boot_opt:
     }
 
     /* We've been asked to boot the default */
-    return pxeboot__get_default_boot(config);
+    return pxeboot__get_default_boot(config, 0);
 }
 
 static int
@@ -330,6 +367,8 @@ parse_pxeboot(const void* data, size_t size)
                 config->prompt = atoi(p);
             } else if (pxeboot__check_and_skip_opt("ONTIMEOUT", &p)) {
                 config->ontimeout = strdup(p);
+            } else if (pxeboot__check_and_skip_opt("DEFAULT", &p)) {
+                config->def = strdup(p);
             } else {
                 continue; /* we don't handle most options; just ignore the unknown ones */
             }
@@ -375,6 +414,7 @@ pxeboot_free(pxeconfig_t* config)
 {
     /* Free global config options */
     free(config->ontimeout);
+    free(config->def);
 
     /* Free all of the images */
     pxeimage_t* h;
