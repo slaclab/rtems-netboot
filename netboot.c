@@ -42,6 +42,7 @@
 #include <rtems/rtems_bsdnet.h>
 #include <rtems/tftp.h>
 #include <librtemsNfs.h>
+#include <rtems/shell.h>
 
 
 #include <sys/socket.h>
@@ -67,6 +68,11 @@ static int tftpInited    = 0;
 #define TFTP_SUPPORT
 
 #include "utils/pathcheck.c"
+
+/* pxeboot config parsing */
+#include "pxeboot.c"
+
+#include "netboot-shell.c"
 
 #ifndef BARE_BOOTP_LOADER
 
@@ -154,6 +160,7 @@ select(int  n,  fd_set  *readfds,  fd_set  *writefds, fd_set *exceptfds, struct 
 #define CONFIGURE_MAXIMUM_MESSAGE_QUEUES	4
 #define CONFIGURE_MAXIMUM_DRIVERS		4
 #define CONFIGURE_LIBIO_MAXIMUM_FILE_DESCRIPTORS 20
+#define CONFIGURE_APPLICATION_NEEDS_LIBBLOCK
 
 #else
 
@@ -190,6 +197,18 @@ RTEMS_BSP_NETWORK_DRIVER_ATTACH(/*struct rtems_bsdnet_ifconfig* */);
 
 extern int
 rtems_bsdnet_loopattach();
+
+extern int
+t9p_rtems_register();
+
+/**
+ * HORRIBLE HACK!:
+ * An optimization bug in GCC 4.X causes aliased weak symbols to end up in
+ * the read-only data section if they're aliased to a symbol within the same
+ * object file. Thus we need to put net_driver_ticks_per_sec here to avoid
+ * this, otherwise if_gfe and if_em try to write to something in .rodata...
+ */
+unsigned net_driver_ticks_per_sec = 0;
 
 #ifndef BARE_BOOTP_LOADER
 static void (*do_bootp)(void) = rtems_bsdnet_do_bootp;
@@ -703,6 +722,7 @@ help(void)
 	printf("Press '1' for continuing the netboot; enforce using NVRAM config with boot option 1. Same as 'm'\n");
 	printf("Press '2' for continuing the netboot; enforce using NVRAM config with boot option 2\n");
 	printf("Press '3' for continuing the netboot; enforce using NVRAM config with boot option 3\n");
+	printf("Press 'x' to drop into a boot shell\n");
 	printf("Press 'R' to reboot now "
 #ifdef SPC_REBOOT
 	       "(you can always hit <Ctrl>-%c to reboot)",SPC2CHR(SPC_REBOOT)
@@ -840,7 +860,7 @@ int  i;
 			} while ( -10 == (fd = isRshPath(&boot_srvname, boot_filename, &errfd, 0)) );
 		} else {
 			releaseMount( 0 );
-		 	if ( (fd = isRemotePath(&boot_srvname, boot_filename, &errfd, 0, 0, pathType(boot_filename))) < -10 ) {
+			if ( (fd = isRemotePath(&boot_srvname, boot_filename, &errfd, 0, 0, pathType(boot_filename))) < 0 ) {
 				if ( -2 == fd ) {
 					/* not strictly necessary here - just to remind us that
 					 * the file couldn't be opened but the mount was OK
@@ -968,6 +988,7 @@ rtems_task Init(
   unsigned char	ch;
   int	secs;
   int   bootopt = 0;
+  int   shell = 0;
 
 	t9p_rtems_register();
 
@@ -1108,6 +1129,7 @@ rtems_task Init(
 								case '1':	manual=0; enforceBootp=-1; bootopt = 0; break;
 								case '2':	manual=0; enforceBootp=-1; bootopt = 1; break;
 								case '3':	manual=0; enforceBootp=-1; bootopt = 2; break;
+								case 'x':	manual=0; shell=1; break;
 
 								default: 	manual=-1;
 										break;
@@ -1197,19 +1219,53 @@ rtems_task Init(
 		rtems_bsdnet_config.mbuf_bytecount         = BSP_mem_size >> 8;
 	}
 
-  	rtems_bsdnet_initialize_network(); 
+	if (rtems_bsdnet_initialize_network() != 0) {
+		fprintf(stderr, "Some network devices did not come up!\n");
+	}
+
+	/* Drop into bootloader shell (debugging only) */
+	if (shell) {
+		register_netboot_cmds();
+
+		int r = rtems_shell_init(
+			"SHLL", 0, 100, "/dev/console", true, true, NULL
+		);
+		if (r != RTEMS_SUCCESSFUL) {
+			fprintf(stderr, "Failed to drop into bootloader shell!\n");
+			abort();
+		}
+	}
 
 	if (enforceBootp >= 0) {
 		/* use filename, script and server supplied by bootp */
 
 		/* 'p' --> skip filename/bootparams */
 		if ( 2 != enforceBootp ) {
-			if (BOFN) {
-				free(boot_filename);
-				boot_filename=strdup(BOFN);
+			fprintf(stderr, "Filename='%s'\n", BOFN ? BOFN : "<none>");
+			fprintf(stderr, "Cmdline='%s'\n", BCMD ? BCMD : "<none>");
+
+			/* if we're being given a pxeboot file, parse out the pxeconfig instead */
+			if (BOFN && !strncmp(BOFN, "pxelinux", sizeof("pxelinux")-1)) {
+				fprintf(stderr, "Detected pxelinux; attempting to fetch a PXE config over TFTP...\n");
+				char *new_bfn = NULL, *new_parms = NULL;
+				if (do_pxeboot(rtems_bsdnet_bootp_server_name, &new_bfn, &new_parms) != 0) {
+					fprintf(stderr, "do_pxeboot: error downloading and/or parsing PXE config\n");
+				} else {
+					fprintf(stderr, "do_pxeboot: Booting with filename='%s' append='%s'\n", new_bfn, new_parms);
+					free(boot_filename);
+					free(boot_parms);
+					boot_filename = new_bfn;
+					boot_parms = new_parms;
+				}
+			} else {
+				/* Obtaining parameters from DHCP/BOOTP */
+				if (BOFN) {
+					free(boot_filename);
+					boot_filename=strdup(BOFN);
+				}
+				free(boot_parms);
+				boot_parms = BCMD && *BCMD ? strdup(BCMD) : 0;
 			}
-			free(boot_parms);
-			boot_parms = BCMD && *BCMD ? strdup(BCMD) : 0;
 		}
 
 		boot_srvname = strdup("xxx.xxx.xxx.xxx.");
